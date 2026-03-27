@@ -1,0 +1,160 @@
+# IPC Debugger — Implementation Plan
+
+A web-based tool for visualizing and debugging Inter-Process Communication. Built as a single-page application with rich animations, dark-mode aesthetics, and interactive simulations.
+
+## Proposed Changes
+
+### Project Structure
+
+```
+OS PROJECT/
+├── index.html          # Main entry point
+├── css/
+│   └── styles.css      # Design system + all styles
+├── js/
+│   ├── app.js          # Main app controller, dashboard
+│   ├── process.js      # Process simulator
+│   ├── pipe.js         # Pipe IPC mechanism
+│   ├── messageQueue.js # Message Queue IPC mechanism
+│   ├── sharedMemory.js # Shared Memory IPC mechanism
+│   ├── semaphore.js    # Semaphore synchronization
+│   ├── debugger.js     # Deadlock, race, bottleneck detection
+│   ├── visualizer.js   # Canvas/SVG rendering of processes & connections
+│   ├── timeline.js     # Timeline view
+│   └── logger.js       # Event logging & report export
+└── assets/
+    └── favicon.ico
+```
+
+> [!NOTE]
+> Using vanilla HTML/CSS/JS (no frameworks) to keep it simple, portable, and easy to present in a viva. Opens directly in a browser — no build tools needed.
+
+---
+
+### Design System — `css/styles.css`
+
+#### [NEW] [styles.css](file:///c:/Users/MSI%20PC/Desktop/ACADEMICS/SEMISTERS/SEMISTER%20FOUR/CSE316%20OPERATING%20SYSTEMS/OS%20PROJECT/css/styles.css)
+
+- Dark-mode dashboard theme with glassmorphism panels
+- CSS custom properties for colors, spacing, shadows
+- Animated process nodes (glow, pulse based on state)
+- Animated data-flow lines (flowing particles along pipes/queues)
+- Responsive grid layout for dashboard panels
+- Google Font: **Inter** for clean typography
+
+---
+
+### Main Dashboard — `index.html` + `js/app.js`
+
+#### [NEW] [index.html](file:///c:/Users/MSI%20PC/Desktop/ACADEMICS/SEMISTERS/SEMISTER%20FOUR/CSE316%20OPERATING%20SYSTEMS/OS%20PROJECT/index.html)
+
+- Dashboard layout: header, sidebar (controls), main visualization area, event log panel, timeline panel
+- Panels: Process Manager, IPC Connections, Debug Alerts, Event Log, Metrics
+
+#### [NEW] [app.js](file:///c:/Users/MSI%20PC/Desktop/ACADEMICS/SEMISTERS/SEMISTER%20FOUR/CSE316%20OPERATING%20SYSTEMS/OS%20PROJECT/js/app.js)
+
+- Initializes all modules, orchestrates simulation ticks
+- Manages global state (processes, connections, events)
+- Provides scenario presets (Normal Flow, Deadlock, Race Condition, Bottleneck)
+- Controls play/pause/step/reset of simulation
+
+---
+
+### Process Simulator — `js/process.js`
+
+#### [NEW] [process.js](file:///c:/Users/MSI%20PC/Desktop/ACADEMICS/SEMISTERS/SEMISTER%20FOUR/CSE316%20OPERATING%20SYSTEMS/OS%20PROJECT/js/process.js)
+
+- `Process` class with `id`, `name`, `state` (ready, running, waiting, blocked, terminated)
+- `ProcessManager` to create, remove, list processes
+- State transition logic (running → waiting when performing IPC, blocked on deadlock, etc.)
+- Each process has a message inbox and resource hold/wait lists
+
+---
+
+### IPC Mechanisms — `js/pipe.js`, `js/messageQueue.js`, `js/sharedMemory.js`, `js/semaphore.js`
+
+#### [NEW] [pipe.js](file:///c:/Users/MSI%20PC/Desktop/ACADEMICS/SEMISTERS/SEMISTER%20FOUR/CSE316%20OPERATING%20SYSTEMS/OS%20PROJECT/js/pipe.js)
+
+- `Pipe` class: unidirectional, fixed-size buffer
+- `write(data)` / `read()` operations with buffer tracking
+- Detects pipe full / pipe empty conditions
+
+#### [NEW] [messageQueue.js](file:///c:/Users/MSI%20PC/Desktop/ACADEMICS/SEMISTERS/SEMISTER%20FOUR/CSE316%20OPERATING%20SYSTEMS/OS%20PROJECT/js/messageQueue.js)
+
+- `MessageQueue` class: FIFO queue with max capacity
+- `send(msg)` / `receive()` with priority support
+- Detects queue overflow
+
+#### [NEW] [sharedMemory.js](file:///c:/Users/MSI%20PC/Desktop/ACADEMICS/SEMISTERS/SEMISTER%20FOUR/CSE316%20OPERATING%20SYSTEMS/OS%20PROJECT/js/sharedMemory.js)
+
+- `SharedMemory` class: key-value store accessible by multiple processes
+- Tracks concurrent read/write access
+- Flags race conditions when two processes write simultaneously
+
+#### [NEW] [semaphore.js](file:///c:/Users/MSI%20PC/Desktop/ACADEMICS/SEMISTERS/SEMISTER%20FOUR/CSE316%20OPERATING%20SYSTEMS/OS%20PROJECT/js/semaphore.js)
+
+- `Semaphore` class: `wait()` / `signal()` operations
+- Tracks which process holds it, and wait queue
+- Used by shared memory to demonstrate synchronization
+
+---
+
+### Debugging Engine — `js/debugger.js`
+
+#### [NEW] [debugger.js](file:///c:/Users/MSI%20PC/Desktop/ACADEMICS/SEMISTERS/SEMISTER%20FOUR/CSE316%20OPERATING%20SYSTEMS/OS%20PROJECT/js/debugger.js)
+
+- **Deadlock Detection**: Builds a wait-for graph from process resource requests; runs cycle detection (DFS) to find circular waits
+- **Race Condition Detection**: Monitors shared memory accesses; flags concurrent writes without semaphore lock
+- **Bottleneck Detection**: Checks queue occupancy, pipe buffer fullness, process wait durations
+- Returns alerts with severity (info, warning, critical) and involved processes
+
+---
+
+### Visualization — `js/visualizer.js`
+
+#### [NEW] [visualizer.js](file:///c:/Users/MSI%20PC/Desktop/ACADEMICS/SEMISTERS/SEMISTER%20FOUR/CSE316%20OPERATING%20SYSTEMS/OS%20PROJECT/js/visualizer.js)
+
+- Renders process nodes as colored circles on an SVG canvas
+- Node colors change based on state (green=running, yellow=waiting, red=blocked/deadlock, gray=terminated)
+- Draws animated connection lines for pipes, queues, shared memory
+- Flowing particle animation along connections to show data transfer
+- Deadlock visualization: red highlighted cycle in wait-for graph
+- Interactive: click processes for details, hover for tooltips
+
+---
+
+### Timeline & Logging — `js/timeline.js`, `js/logger.js`
+
+#### [NEW] [timeline.js](file:///c:/Users/MSI%20PC/Desktop/ACADEMICS/SEMISTERS/SEMISTER%20FOUR/CSE316%20OPERATING%20SYSTEMS/OS%20PROJECT/js/timeline.js)
+
+- Horizontal timeline showing process states over simulation ticks
+- Color-coded bars per process (send, receive, wait, blocked)
+- Current tick indicator
+
+#### [NEW] [logger.js](file:///c:/Users/MSI%20PC/Desktop/ACADEMICS/SEMISTERS/SEMISTER%20FOUR/CSE316%20OPERATING%20SYSTEMS/OS%20PROJECT/js/logger.js)
+
+- Logs all IPC events with timestamps
+- Scrollable event log in the UI with color-coded entries
+- Export debug report as downloadable text file with summary statistics
+
+---
+
+## Verification Plan
+
+### Browser Testing
+
+1. Open `index.html` directly in the browser
+2. Verify dashboard renders with all panels (Process Manager, Visualization, Event Log, Timeline, Debug Alerts)
+3. Test scenario presets:
+   - **Normal Flow**: Processes communicate via pipe — verify smooth animation, messages delivered, no alerts
+   - **Deadlock Scenario**: Two processes hold resources and wait for each other — verify deadlock detected, red highlight on processes, alert shown
+   - **Race Condition**: Two processes write to shared memory without semaphore — verify race condition warning
+   - **Bottleneck**: Overload a message queue — verify queue overflow alert
+4. Test controls: Play, Pause, Step, Reset
+5. Test Export Report: download and verify content
+
+### Manual Verification
+- Visual confirmation that animations run smoothly
+- Verify process state transitions reflect correctly in the UI
+- Confirm deadlock graph cycle is visually highlighted
+- Check that timeline updates in real-time
