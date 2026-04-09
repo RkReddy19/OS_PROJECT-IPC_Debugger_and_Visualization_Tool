@@ -1,0 +1,192 @@
+﻿py : EventEmitter callback 
+error on 'new_event': 
+intentional error
+At line:1 char:32
++ 
+$env:PYTHONIOENCODING='utf-8'; 
+py run_all_scenarios.py 2>&1 | 
+Out-Fil ...
++                               
+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : N 
+   otSpecified: (EventEmitter   
+  ca...tentional error:String   
+ ) [], RemoteException
+    + FullyQualifiedErrorId : N 
+   ativeCommandError
+ 
+
+≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼
+  IPC DEBUGGER ΓÇö COMPREHENSIVE INTEGRATION TEST
+≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼≡ƒö¼
+
+======================================================================
+  TEST: EventEmitter Mixin
+======================================================================
+  Γ£à Event emitted and received: SEND
+  Γ£à Bad callback didn't crash, good callback still fired
+  Γ£à Callback unregistered successfully
+
+  Γ£à ALL EVENT EMITTER TESTS PASSED
+
+======================================================================
+  TEST: All IPC Channel Types
+======================================================================
+
+  --- PipeChannel ---
+  Γ£à Pipe: sent='hello_pipe', received='hello_pipe'
+
+  --- QueueChannel ---
+  Γ£à Queue depth after 5 sends: 5
+  Γ£à Queue peak depth: 5
+  Γ£à FIFO order verified: received msg_0 through msg_4 in order
+  Γ£à Queue depth after drain: 0
+
+  --- SharedMemoryChannel ---
+  Γ£à SharedMemory: sent/received 500-char message (no size limit)
+
+  Γ£à ALL CHANNEL TYPES PASSED
+
+======================================================================
+  TEST: Synchronization Manager
+======================================================================
+
+  --- TrackedLock Release Guard (Issue #2 Fix) ---
+  P1 acquired lock. Holder: P1
+  P2 tried to release ΓåÆ Holder still: P1
+  Γ£à Release guard working ΓÇö wrong process ignored
+  P1 released ΓåÆ Holder: None
+  Γ£à Correct release works
+
+  --- Wait-For Edge Generation ---
+  Wait-for edges: [('P2', 'P1')]
+  Γ£à Edge (P2 waits-for P1) correctly generated
+
+  --- Access Logs (for Race Detection) ---
+  Access log entries: 3
+  Γ£à Access logs tracking correctly
+
+  Γ£à ALL SYNC MANAGER TESTS PASSED
+
+======================================================================
+  TEST: Producer-Consumer Fix (Both Send & Receive)
+======================================================================
+  Messages sent:     11
+  Messages received: 10
+  Γ£à PASSED ΓÇö producer_consumer correctly sends AND receives
+
+======================================================================
+  TEST: Race Condition Detection
+======================================================================
+
+  --- Write-Write Race ---
+  ≡ƒö┤ Detected: Concurrent write-write access by P1 and P2 on 'shared_var_X' within 500ms window
+  Γ£à Write-write race correctly detected
+
+  --- Read-Write Race ---
+  ≡ƒö┤ Detected: Concurrent read-write access by P3 and P4 on 'buffer_Y' within 500ms window
+  Γ£à Read-write race correctly detected
+
+  --- Locked Access (No Race) ---
+  Γ£à Locked writes: 0 races (correct)
+
+  --- Read-Read (No Race) ---
+  Γ£à Read-read: 0 races (correct)
+
+  --- Outside Time Window (No Race) ---
+  Γ£à Outside window: 0 races (correct)
+
+  Γ£à ALL RACE DETECTION TESTS PASSED
+
+======================================================================
+  SCENARIO 1: Normal IPC (Producer ΓåÆ Consumer)
+======================================================================
+  Γ£à Added process: Producer_A (behavior=producer, priority=5)
+  Γ£à Added process: Consumer_B (behavior=consumer, priority=5)
+  Γ£à Created channel: A_to_B_queue (queue)
+
+  --- Running simulation for 3 seconds ---
+  Producer sent:    5 messages
+  Consumer received: 5 messages
+  Queue depth:      0
+  Peak depth:       1
+  Total events:     14
+  Γ£à PASSED ΓÇö Normal IPC working correctly
+
+  --- Bottleneck Analysis ---
+  Γ£à No bottlenecks detected (expected for balanced scenario)
+
+  --- Channel Metrics ---
+  Channel: A_to_B_queue
+    Sent: 5, Received: 5
+    Avg Latency: 0.0020s
+    Throughput:  2.08 msg/s
+    Queue Depth: 0 (peak: 1)
+
+======================================================================
+  SCENARIO 2: Deadlock Detection (3-Process Circular)
+======================================================================
+  Γ£à Added process: P1
+  Γ£à Added process: P2
+  Γ£à Added process: P3
+  Γ£à P1 will acquire: ['Lock_A', 'Lock_B']
+  Γ£à P2 will acquire: ['Lock_B', 'Lock_C']
+  Γ£à P3 will acquire: ['Lock_C', 'Lock_A']
+
+  --- Running simulation for 3 seconds (deadlock should form) ---
+
+  --- Running Deadlock Detection ---
+  ≡ƒö┤ DEADLOCK DETECTED!
+     Cycles found: 1
+     Involved processes: ['P1', 'P2', 'P3']
+     Cycle edges: [('P1', 'P2'), ('P2', 'P3'), ('P3', 'P1')]
+     Cycle 1: P1 ΓåÆ P2 ΓåÆ P3 ΓåÆ P1
+  Γ£à PASSED ΓÇö Deadlock correctly detected
+
+  --- Manual DFS Cycle Detection (Educational) ---
+  Manual DFS found 3 cycle edges
+
+  --- Direct Graph Test (Guaranteed Cycle) ---
+  Γ£à Direct graph cycle detection: 1 cycle(s) found
+  Γ£à PASSED ΓÇö Deadlock detection verified
+
+======================================================================
+  SCENARIO 3: Bottleneck (Fast Producer ΓåÆ Slow Consumer)
+======================================================================
+  Γ£à Added process: FastSender (priority=9, delay=0.2s)
+  Γ£à Added process: SlowReceiver (priority=2, delay=3.0s)
+  Γ£à Created channel: fast_slow_queue (maxsize=50)
+
+  --- Running simulation for 5 seconds ---
+  FastSender sent:      53 messages
+  SlowReceiver received: 3 messages
+  Queue depth:          50
+  Peak depth:           50
+  Γ£à Imbalance confirmed: 53 sent vs 3 received
+
+  --- Bottleneck Analysis ---
+  ΓÜá [CRITICAL] queue_depth: Queue depth 50 (peak: 50) exceeds threshold 5. Consumer 'SlowReceiver' may be too slow.
+  ΓÜá [MEDIUM] latency: Avg latency 2.661s exceeds threshold 2.0s.
+  ΓÜá [MEDIUM] throughput_ratio: Only 3/53 messages received (ratio=0.06). Possible message loss or slow consumer.
+  Γ£à PASSED ΓÇö 3 bottleneck(s) correctly detected
+
+  --- Channel Metrics ---
+  fast_slow_queue: sent=53, recv=3, lat=2.661s, thru=9.8msg/s, depth=50, peak=50
+
+======================================================================
+  FINAL RESULTS
+======================================================================
+  Γ£à PASSED  Event Emitter
+  Γ£à PASSED  All Channel Types
+  Γ£à PASSED  Sync Manager
+  Γ£à PASSED  Producer-Consumer Fix
+  Γ£à PASSED  Race Detection
+  Γ£à PASSED  Scenario 1: Normal IPC
+  Γ£à PASSED  Scenario 2: Deadlock
+  Γ£à PASSED  Scenario 3: Bottleneck
+
+  ==================================================
+  Total: 8  |  Passed: 8  |  Failed: 0
+  ==================================================
+
+  ≡ƒÄë ALL TESTS PASSED! The IPC Debugger is fully functional.

@@ -1,0 +1,18 @@
+IPC Debugger — Metrics Report
+==================================================
+
+Lock_A→B (pipe): P1→P2
+  Sent=113 Recv=112 Bytes=794
+  Latency: avg=0.015s max=0.296s
+  Throughput: 3.09msg/s  Depth=0 Peak=0
+
+Lock_B→C (pipe): P2→P3
+  Sent=113 Recv=112 Bytes=794
+  Latency: avg=0.011s max=0.297s
+  Throughput: 3.09msg/s  Depth=0 Peak=0
+
+Lock_C→A (pipe): P3→P1
+  Sent=113 Recv=112 Bytes=794
+  Latency: avg=0.015s max=0.296s
+  Throughput: 3.09msg/s  Depth=0 Peak=0
+
