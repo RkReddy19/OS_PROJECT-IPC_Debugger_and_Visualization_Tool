@@ -1,230 +1,379 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="IPC Debugger — Visualize and debug Inter-Process Communication mechanisms including Pipes, Message Queues, Shared Memory, and Semaphores">
-  <title>IPC Debugger — Inter-Process Communication Visualizer</title>
-  <link rel="stylesheet" href="css/styles.css">
-</head>
-<body>
-  <div id="app">
-    <!-- ===== HEADER ===== -->
-    <header class="header">
-      <div class="header-brand">
-        <div class="logo">⚡</div>
-        <div>
-          <h1>IPC Debugger</h1>
-          <div class="subtitle">Inter-Process Communication Visualizer</div>
-        </div>
-      </div>
-
-      <div class="sim-controls" role="group" aria-label="Simulation controls">
-        <div class="btn-group" role="group" aria-label="Playback controls">
-          <button class="btn btn-icon" id="btn-play" title="Play (Start simulation)" aria-label="Play simulation">▶</button>
-          <button class="btn btn-icon" id="btn-pause" title="Pause (Freeze simulation)" aria-label="Pause simulation">⏸</button>
-          <button class="btn btn-icon" id="btn-step" title="Step (One tick at a time)" aria-label="Step to next event">⏭</button>
-          <button class="btn btn-icon" id="btn-reset" title="Reset (Back to start)" aria-label="Reset simulation">⏹</button>
-        </div>
-
-        <div class="speed-control" role="region" aria-label="Speed adjustment">
-          <label for="speed-slider" title="Adjust simulation playback speed">Speed</label>
-          <input type="range" id="speed-slider" min="1" max="10" value="5" aria-label="Simulation speed (1x to 10x)">
-          <span id="speed-value" aria-live="polite">5x</span>
-        </div>
-
-        <span class="tick-counter" id="tick-counter" aria-live="polite" aria-atomic="true">Tick: 0</span>
-        <span class="badge stopped" id="sim-status" aria-live="polite" aria-atomic="true">● Stopped</span>
-      </div>
-
-      <div class="header-controls">
-        <button class="btn btn-sm" id="btn-export" title="Export Debug Report (Ctrl+Shift+E)" aria-label="Export debug report as file">📄 Export Report</button>
-        <button class="btn btn-sm" id="btn-help" title="View keyboard shortcuts and help" aria-label="Show help information" style="display: none;">❓ Help</button>
-      </div>
-    </header>
-
-    <!-- ===== DASHBOARD ===== -->
-    <div class="dashboard">
-
-      <!-- ----- SIDEBAR ----- -->
-      <div class="sidebar card">
-        <div class="card-header">
-          <h3><span class="icon">⚙</span> Control Panel</h3>
-        </div>
-        <div class="card-body">
-          <!-- Scenario Select -->
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="IPC Debugger — Visualize and debug Inter-Process Communication mechanisms including Pipes, Message Queues, Shared Memory, and Semaphores"
+    />
+    <title>IPC Debugger — Inter-Process Communication Visualizer</title>
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- ===== HEADER ===== -->
+      <header class="header">
+        <div class="header-brand">
+          <div class="logo">⚡</div>
           <div>
-            <label for="scenario-select" class="section-label">
-              Scenario
-              <span class="info-icon" title="Choose a predefined scenario to visualize different IPC patterns and problems">?</span>
-            </label>
-            <select class="scenario-select" id="scenario-select" aria-label="Select a simulation scenario">
-              <option value="">— Select a Scenario —</option>
-              <optgroup label="Normal Communication">
-                <option value="normal-pipe">📨 Pipe Communication</option>
-                <option value="normal-queue">📬 Message Queue</option>
-              </optgroup>
-              <optgroup label="Problem Scenarios">
-                <option value="deadlock">🔒 Deadlock</option>
-                <option value="race-condition">⚡ Race Condition</option>
-                <option value="bottleneck">🚧 Bottleneck</option>
-              </optgroup>
-              <optgroup label="Advanced">
-                <option value="complex">🔗 Complex Multi-IPC</option>
-              </optgroup>
-              <optgroup label="Custom">
-                <option value="custom">✨ Custom Processes</option>
-              </optgroup>
-            </select>
-            <span class="hint-text">👉 Start by selecting a scenario from the dropdown above</span>
+            <h1>IPC Debugger</h1>
+            <div class="subtitle">Inter-Process Communication Visualizer</div>
+          </div>
+        </div>
+
+        <div class="sim-controls" role="group" aria-label="Simulation controls">
+          <div class="btn-group" role="group" aria-label="Playback controls">
+            <button
+              class="btn btn-icon"
+              id="btn-play"
+              title="Play (Start simulation)"
+              aria-label="Play simulation"
+            >
+              ▶
+            </button>
+            <button
+              class="btn btn-icon"
+              id="btn-pause"
+              title="Pause (Freeze simulation)"
+              aria-label="Pause simulation"
+            >
+              ⏸
+            </button>
+            <button
+              class="btn btn-icon"
+              id="btn-step"
+              title="Step (One tick at a time)"
+              aria-label="Step to next event"
+            >
+              ⏭
+            </button>
+            <button
+              class="btn btn-icon"
+              id="btn-reset"
+              title="Reset (Back to start)"
+              aria-label="Reset simulation"
+            >
+              ⏹
+            </button>
           </div>
 
-          <!-- Process List -->
-          <div>
-            <h4 class="section-label">
-              Processes
-              <span class="info-icon" title="Shows all active processes in the simulation with their current state">?</span>
-            </h4>
-            
-            <!-- Custom Process Input -->
-            <div id="custom-process-section" style="display: none; margin-bottom: 12px;">
-              <input 
-                type="text" 
-                id="custom-process-input" 
-                class="custom-process-input" 
-                placeholder="e.g., P1,P2,P3,P4,P5" 
-                aria-label="Enter custom process names separated by commas"
-                title="Enter process names separated by commas"
+          <div class="speed-control" role="region" aria-label="Speed adjustment">
+            <label for="speed-slider" title="Adjust simulation playback speed">Speed</label>
+            <input
+              type="range"
+              id="speed-slider"
+              min="1"
+              max="10"
+              value="5"
+              aria-label="Simulation speed (1x to 10x)"
+            />
+            <span id="speed-value" aria-live="polite">5x</span>
+          </div>
+
+          <span class="tick-counter" id="tick-counter" aria-live="polite" aria-atomic="true"
+            >Tick: 0</span
+          >
+          <span class="badge stopped" id="sim-status" aria-live="polite" aria-atomic="true"
+            >● Stopped</span
+          >
+        </div>
+
+        <div class="header-controls">
+          <button
+            class="btn btn-sm"
+            id="btn-export"
+            title="Export Debug Report (Ctrl+Shift+E)"
+            aria-label="Export debug report as file"
+          >
+            📄 Export Report
+          </button>
+          <button
+            class="btn btn-sm"
+            id="btn-help"
+            title="View keyboard shortcuts and help"
+            aria-label="Show help information"
+            style="display: none"
+          >
+            ❓ Help
+          </button>
+        </div>
+      </header>
+
+      <!-- ===== DASHBOARD ===== -->
+      <div class="dashboard">
+        <!-- ----- SIDEBAR ----- -->
+        <div class="sidebar card">
+          <div class="card-header">
+            <h3><span class="icon">⚙</span> Control Panel</h3>
+          </div>
+          <div class="card-body">
+            <!-- Scenario Select -->
+            <div>
+              <label for="scenario-select" class="section-label">
+                Scenario
+                <span
+                  class="info-icon"
+                  title="Choose a predefined scenario to visualize different IPC patterns and problems"
+                  >?</span
+                >
+              </label>
+              <select
+                class="scenario-select"
+                id="scenario-select"
+                aria-label="Select a simulation scenario"
               >
-              <button 
-                class="btn btn-primary" 
-                id="create-custom-btn" 
-                style="width: 100%; margin-top: 8px;"
-                aria-label="Create custom processes"
-              >✨ Create Processes</button>
-              <span class="hint-text">Enter process names separated by commas</span>
+                <option value="">— Select a Scenario —</option>
+                <optgroup label="Normal Communication">
+                  <option value="normal-pipe">📨 Pipe Communication</option>
+                  <option value="normal-queue">📬 Message Queue</option>
+                </optgroup>
+                <optgroup label="Problem Scenarios">
+                  <option value="deadlock">🔒 Deadlock</option>
+                  <option value="race-condition">⚡ Race Condition</option>
+                  <option value="bottleneck">🚧 Bottleneck</option>
+                </optgroup>
+                <optgroup label="Advanced">
+                  <option value="complex">🔗 Complex Multi-IPC</option>
+                </optgroup>
+                <optgroup label="Custom">
+                  <option value="custom">✨ Custom Processes</option>
+                </optgroup>
+              </select>
+              <span class="hint-text"
+                >👉 Start by selecting a scenario from the dropdown above</span
+              >
             </div>
-            
-            <div class="process-list" id="process-list" role="region" aria-label="Process list">
-              <div class="empty-state" style="padding: 16px 0;">
-                <div class="empty-icon">⚙️</div>
-                <p>No processes active</p>
-                <p class="help-text">Select a scenario to start the simulation</p>
+
+            <!-- Process List -->
+            <div>
+              <h4 class="section-label">
+                Processes
+                <span
+                  class="info-icon"
+                  title="Shows all active processes in the simulation with their current state"
+                  >?</span
+                >
+              </h4>
+
+              <!-- Custom Process Input -->
+              <div id="custom-process-section" style="display: none; margin-bottom: 12px">
+                <input
+                  type="text"
+                  id="custom-process-input"
+                  class="custom-process-input"
+                  placeholder="e.g., P1,P2,P3,P4,P5"
+                  aria-label="Enter custom process names separated by commas"
+                  title="Enter process names separated by commas"
+                />
+                <button
+                  class="btn btn-primary"
+                  id="create-custom-btn"
+                  style="width: 100%; margin-top: 8px"
+                  aria-label="Create custom processes"
+                >
+                  ✨ Create Processes
+                </button>
+                <span class="hint-text">Enter process names separated by commas</span>
+              </div>
+
+              <div class="process-list" id="process-list" role="region" aria-label="Process list">
+                <div class="empty-state" style="padding: 16px 0">
+                  <div class="empty-icon">⚙️</div>
+                  <p>No processes active</p>
+                  <p class="help-text">Select a scenario to start the simulation</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Connections -->
+            <div>
+              <h4 class="section-label">
+                IPC Connections
+                <span
+                  class="info-icon"
+                  title="Inter-Process Communication channels between processes (pipes, queues, shared memory, semaphores)"
+                  >?</span
+                >
+              </h4>
+              <div
+                class="connection-list"
+                id="connection-list"
+                role="region"
+                aria-label="IPC connections list"
+              >
+                <div class="empty-state" style="padding: 16px 0">
+                  <div class="empty-icon">🔗</div>
+                  <p style="font-size: 0.75rem">No connections</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Metrics -->
+            <div>
+              <h4 class="section-label">
+                Metrics
+                <span
+                  class="info-icon"
+                  title="Real-time statistics about the simulation: messages sent/received, detected issues"
+                  >?</span
+                >
+              </h4>
+              <div class="metrics-grid" role="region" aria-label="Simulation metrics">
+                <div class="metric-card">
+                  <div class="metric-value indigo" id="metric-sent" aria-label="Messages sent">
+                    0
+                  </div>
+                  <div class="metric-label">Sent</div>
+                </div>
+                <div class="metric-card">
+                  <div
+                    class="metric-value cyan"
+                    id="metric-received"
+                    aria-label="Messages received"
+                  >
+                    0
+                  </div>
+                  <div class="metric-label">Received</div>
+                </div>
+                <div class="metric-card">
+                  <div
+                    class="metric-value rose"
+                    id="metric-deadlocks"
+                    aria-label="Deadlocks detected"
+                  >
+                    0
+                  </div>
+                  <div class="metric-label">Deadlocks</div>
+                </div>
+                <div class="metric-card">
+                  <div class="metric-value amber" id="metric-alerts" aria-label="Alerts triggered">
+                    0
+                  </div>
+                  <div class="metric-label">Alerts</div>
+                </div>
               </div>
             </div>
           </div>
+        </div>
 
-          <!-- Connections -->
-          <div>
-            <h4 class="section-label">
-              IPC Connections
-              <span class="info-icon" title="Inter-Process Communication channels between processes (pipes, queues, shared memory, semaphores)">?</span>
-            </h4>
-            <div class="connection-list" id="connection-list" role="region" aria-label="IPC connections list">
-              <div class="empty-state" style="padding: 16px 0;">
-                <div class="empty-icon">🔗</div>
-                <p style="font-size: 0.75rem;">No connections</p>
+        <!-- ----- MAIN VISUALIZATION ----- -->
+        <div class="main-viz card" role="region" aria-label="Process visualization">
+          <div class="card-header">
+            <div>
+              <h3><span class="icon">🔮</span> Process Visualization</h3>
+              <span style="font-size: 0.7rem; color: var(--text-muted)">Real-time IPC graph</span>
+            </div>
+            <span
+              class="info-icon"
+              title="Interactive visualization showing processes (circles) and their IPC connections (arrows)"
+              >?</span
+            >
+          </div>
+          <div
+            class="card-body"
+            style="
+              position: relative;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              min-height: 300px;
+            "
+          >
+            <svg
+              id="viz-canvas"
+              role="img"
+              aria-label="Process and IPC connection visualization"
+            ></svg>
+            <div
+              class="empty-state"
+              id="viz-empty-state"
+              style="position: absolute; width: 100%; height: 100%"
+            >
+              <div class="empty-icon" style="font-size: 4rem">🔮</div>
+              <p style="font-size: 1rem; font-weight: 600">Select a scenario to begin</p>
+              <p class="help-text" style="max-width: 300px">
+                Choose from the Control Panel on the left, then press Play to visualize the IPC
+                mechanism in action
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ----- RIGHT PANEL (Tabs) ----- -->
+        <div class="right-panel card" role="region" aria-label="Alerts and logging">
+          <div class="panel-tabs" role="tablist">
+            <button
+              class="panel-tab active"
+              data-tab="tab-alerts"
+              role="tab"
+              aria-selected="true"
+              aria-controls="tab-alerts"
+            >
+              🛡️ Alerts
+            </button>
+            <button
+              class="panel-tab"
+              data-tab="tab-log"
+              role="tab"
+              aria-selected="false"
+              aria-controls="tab-log"
+            >
+              📋 Log
+            </button>
+          </div>
+          <div
+            class="tab-content active"
+            id="tab-alerts"
+            role="tabpanel"
+            aria-labelledby="tab-alerts-button"
+          >
+            <div class="alert-list" id="alert-list">
+              <div class="empty-state">
+                <div class="empty-icon">✅</div>
+                <p>No issues detected</p>
+                <p class="help-text">
+                  Run a simulation to detect deadlocks, race conditions, and bottlenecks
+                </p>
               </div>
             </div>
           </div>
-
-          <!-- Metrics -->
-          <div>
-            <h4 class="section-label">
-              Metrics
-              <span class="info-icon" title="Real-time statistics about the simulation: messages sent/received, detected issues">?</span>
-            </h4>
-            <div class="metrics-grid" role="region" aria-label="Simulation metrics">
-              <div class="metric-card">
-                <div class="metric-value indigo" id="metric-sent" aria-label="Messages sent">0</div>
-                <div class="metric-label">Sent</div>
-              </div>
-              <div class="metric-card">
-                <div class="metric-value cyan" id="metric-received" aria-label="Messages received">0</div>
-                <div class="metric-label">Received</div>
-              </div>
-              <div class="metric-card">
-                <div class="metric-value rose" id="metric-deadlocks" aria-label="Deadlocks detected">0</div>
-                <div class="metric-label">Deadlocks</div>
-              </div>
-              <div class="metric-card">
-                <div class="metric-value amber" id="metric-alerts" aria-label="Alerts triggered">0</div>
-                <div class="metric-label">Alerts</div>
+          <div class="tab-content" id="tab-log" role="tabpanel" aria-labelledby="tab-log-button">
+            <div class="event-log" id="event-log">
+              <div class="empty-state" style="padding: 12px 0">
+                <div class="empty-icon">📋</div>
+                <p style="font-size: 0.75rem">No events yet</p>
+                <p class="help-text">Events will appear here as the simulation runs</p>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- ----- BOTTOM PANEL (Timeline) ----- -->
+        <div class="bottom-panel card">
+          <div class="card-header">
+            <h3><span class="icon">📊</span> Timeline</h3>
+            <span style="font-size: 0.7rem; color: var(--text-muted)"
+              >Process states over time</span
+            >
+          </div>
+          <div class="card-body" style="padding: 8px 16px">
+            <div class="timeline-container" id="timeline-container"></div>
           </div>
         </div>
       </div>
-
-      <!-- ----- MAIN VISUALIZATION ----- -->
-      <div class="main-viz card" role="region" aria-label="Process visualization">
-        <div class="card-header">
-          <div>
-            <h3><span class="icon">🔮</span> Process Visualization</h3>
-            <span style="font-size: 0.7rem; color: var(--text-muted);">Real-time IPC graph</span>
-          </div>
-          <span class="info-icon" title="Interactive visualization showing processes (circles) and their IPC connections (arrows)">?</span>
-        </div>
-        <div class="card-body" style="position: relative; display: flex; align-items: center; justify-content: center; min-height: 300px;">
-          <svg id="viz-canvas" role="img" aria-label="Process and IPC connection visualization"></svg>
-          <div class="empty-state" id="viz-empty-state" style="position: absolute; width: 100%; height: 100%;">
-            <div class="empty-icon" style="font-size: 4rem;">🔮</div>
-            <p style="font-size: 1rem; font-weight: 600;">Select a scenario to begin</p>
-            <p class="help-text" style="max-width: 300px;">Choose from the Control Panel on the left, then press Play to visualize the IPC mechanism in action</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- ----- RIGHT PANEL (Tabs) ----- -->
-      <div class="right-panel card" role="region" aria-label="Alerts and logging">
-        <div class="panel-tabs" role="tablist">
-          <button class="panel-tab active" data-tab="tab-alerts" role="tab" aria-selected="true" aria-controls="tab-alerts">🛡️ Alerts</button>
-          <button class="panel-tab" data-tab="tab-log" role="tab" aria-selected="false" aria-controls="tab-log">📋 Log</button>
-        </div>
-        <div class="tab-content active" id="tab-alerts" role="tabpanel" aria-labelledby="tab-alerts-button">
-          <div class="alert-list" id="alert-list">
-            <div class="empty-state">
-              <div class="empty-icon">✅</div>
-              <p>No issues detected</p>
-              <p class="help-text">Run a simulation to detect deadlocks, race conditions, and bottlenecks</p>
-            </div>
-          </div>
-        </div>
-        <div class="tab-content" id="tab-log" role="tabpanel" aria-labelledby="tab-log-button">
-          <div class="event-log" id="event-log">
-            <div class="empty-state" style="padding: 12px 0;">
-              <div class="empty-icon">📋</div>
-              <p style="font-size: 0.75rem;">No events yet</p>
-              <p class="help-text">Events will appear here as the simulation runs</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ----- BOTTOM PANEL (Timeline) ----- -->
-      <div class="bottom-panel card">
-        <div class="card-header">
-          <h3><span class="icon">📊</span> Timeline</h3>
-          <span style="font-size: 0.7rem; color: var(--text-muted);">Process states over time</span>
-        </div>
-        <div class="card-body" style="padding: 8px 16px;">
-          <div class="timeline-container" id="timeline-container"></div>
-        </div>
-      </div>
-
     </div>
-  </div>
 
-  <!-- JavaScript Modules -->
-  <script src="js/logger.js"></script>
-  <script src="js/process.js"></script>
-  <script src="js/pipe.js"></script>
-  <script src="js/messageQueue.js"></script>
-  <script src="js/sharedMemory.js"></script>
-  <script src="js/semaphore.js"></script>
-  <script src="js/debugger.js"></script>
-  <script src="js/timeline.js"></script>
-  <script src="js/visualizer.js"></script>
-  <script src="js/app.js"></script>
-</body>
+    <!-- JavaScript Modules -->
+    <script src="js/logger.js"></script>
+    <script src="js/process.js"></script>
+    <script src="js/pipe.js"></script>
+    <script src="js/messageQueue.js"></script>
+    <script src="js/sharedMemory.js"></script>
+    <script src="js/semaphore.js"></script>
+    <script src="js/debugger.js"></script>
+    <script src="js/timeline.js"></script>
+    <script src="js/visualizer.js"></script>
+    <script src="js/app.js"></script>
+  </body>
 </html>
