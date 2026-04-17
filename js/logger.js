@@ -38,11 +38,21 @@ class Logger {
 
     const el = document.createElement('div');
     el.className = `event-entry ${event.type}`;
-    el.innerHTML = `
-      <span class="event-time">T${String(event.tick).padStart(3, '0')}</span>
-      <span class="event-process">${event.processId || 'SYS'}</span>
-      <span class="event-action">${event.action}${event.detail ? ' — ' + event.detail : ''}</span>
-    `;
+    const time = document.createElement('span');
+    time.className = 'event-time';
+    time.textContent = `T${String(event.tick).padStart(3, '0')}`;
+
+    const process = document.createElement('span');
+    process.className = 'event-process';
+    process.textContent = event.processId || 'SYS';
+
+    const action = document.createElement('span');
+    action.className = 'event-action';
+    action.textContent = `${event.action}${event.detail ? ' — ' + event.detail : ''}`;
+
+    el.appendChild(time);
+    el.appendChild(process);
+    el.appendChild(action);
 
     container.appendChild(el);
 
