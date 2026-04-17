@@ -1,0 +1,27 @@
+# Archives and packaged artifacts
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# Logs and generated diagnostics
+*.log
+reports/
+screenshots/
+artifacts/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node dependencies and caches
+node_modules/
+.npm/

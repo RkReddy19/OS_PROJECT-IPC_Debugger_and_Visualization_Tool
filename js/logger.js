@@ -25,7 +25,11 @@ class Logger {
 
   formatTime() {
     const now = new Date();
-    return now.toLocaleTimeString('en-US', { hour12: false }) + '.' + String(now.getMilliseconds()).padStart(3, '0');
+    return (
+      now.toLocaleTimeString('en-US', { hour12: false }) +
+      '.' +
+      String(now.getMilliseconds()).padStart(3, '0')
+    );
   }
 
   renderEvent(event) {
@@ -58,23 +62,23 @@ class Logger {
   }
 
   getEventsByProcess(processId) {
-    return this.events.filter(e => e.processId === processId);
+    return this.events.filter((e) => e.processId === processId);
   }
 
   getEventsByType(type) {
-    return this.events.filter(e => e.type === type);
+    return this.events.filter((e) => e.type === type);
   }
 
   generateReport() {
-    const totalMessages = this.events.filter(e => e.type === 'send').length;
-    const deadlocks = this.events.filter(e => e.type === 'deadlock').length;
-    const warnings = this.events.filter(e => e.type === 'blocked' || e.type === 'wait').length;
+    const totalMessages = this.events.filter((e) => e.type === 'send').length;
+    const deadlocks = this.events.filter((e) => e.type === 'deadlock').length;
+    const warnings = this.events.filter((e) => e.type === 'blocked' || e.type === 'wait').length;
 
-    const processIds = [...new Set(this.events.map(e => e.processId).filter(Boolean))];
+    const processIds = [...new Set(this.events.map((e) => e.processId).filter(Boolean))];
 
     let report = `╔══════════════════════════════════════════╗\n`;
-    report +=    `║       IPC DEBUGGER — DEBUG REPORT         ║\n`;
-    report +=    `╚══════════════════════════════════════════╝\n\n`;
+    report += `║       IPC DEBUGGER — DEBUG REPORT         ║\n`;
+    report += `╚══════════════════════════════════════════╝\n\n`;
     report += `Generated: ${new Date().toLocaleString()}\n`;
     report += `Total Ticks: ${window.app ? window.app.tick : 0}\n\n`;
 
@@ -82,19 +86,19 @@ class Logger {
     report += `  Processes:          ${processIds.length}\n`;
     report += `  Total Events:       ${this.events.length}\n`;
     report += `  Messages Sent:      ${totalMessages}\n`;
-    report += `  Messages Received:  ${this.events.filter(e => e.type === 'receive').length}\n`;
+    report += `  Messages Received:  ${this.events.filter((e) => e.type === 'receive').length}\n`;
     report += `  Deadlocks Detected: ${deadlocks}\n`;
     report += `  Warnings:           ${warnings}\n\n`;
 
     report += `─── PROCESS DETAILS ───────────────────────\n`;
-    processIds.forEach(pid => {
+    processIds.forEach((pid) => {
       const pEvents = this.getEventsByProcess(pid);
       report += `  ${pid}: ${pEvents.length} events\n`;
     });
     report += `\n`;
 
     report += `─── EVENT LOG ─────────────────────────────\n`;
-    this.events.forEach(e => {
+    this.events.forEach((e) => {
       report += `  [T${String(e.tick).padStart(3, '0')}] ${(e.processId || 'SYS').padEnd(4)} ${e.action}${e.detail ? ' — ' + e.detail : ''}\n`;
     });
 

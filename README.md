@@ -67,11 +67,11 @@ A web-based interactive tool for visualizing and debugging Inter-Process Communi
 ## Project Structure
 
 ```
-OS-PROJECT-main/
+OS-PROJECT/
 ├── index.html              # Main dashboard (entry point)
 ├── README.md              # This file
-├── Implementation Plan    # Project specification
-├── Walkthrough            # Feature walkthrough
+├── IMPLEMENTATION_PLAN.md # Project specification
+├── WALKTHROUGH.md        # Feature walkthrough
 ├── css/
 │   └── styles.css         # Dark-mode design system and all styles
 └── js/
@@ -90,35 +90,44 @@ OS-PROJECT-main/
 ## Scenarios Explained
 
 ### 1. Pipe Communication
+
 Two processes communicate through a unidirectional pipe. Demonstrates basic IPC through buffered data flow.
 
 ### 2. Message Queue
+
 Processes exchange messages through a FIFO queue. Shows message-based communication.
 
 ### 3. Deadlock Scenario
+
 Two processes become deadlocked waiting for resources held by each other. The debugger detects this circular wait.
 
 ### 4. Race Condition
+
 Multiple processes access and modify shared memory simultaneously without proper synchronization, causing conflicting writes.
 
 ### 5. Bottleneck
+
 A single shared resource receives requests from many processes, creating a performance bottleneck.
 
 ### 6. Complex Multi-IPC
+
 Multiple processes using pipes, queues, and shared memory simultaneously in a complex scenario.
 
 ## Debugging Features
 
 ### Deadlock Detection
+
 - Analyzes the wait-for graph for circular dependencies
 - When detected: processes turn red and alert shows "Circular wait: P1 → P2 → P1"
 
 ### Race Condition Detection
+
 - Monitors concurrent access to shared memory
 - Flags when two processes write to the same memory location simultaneously
 - Alert displays conflicting accesses
 
 ### Bottleneck Analysis
+
 - Identifies resources receiving disproportionate requests
 - Shows which process is the bottleneck and impact on others
 
@@ -144,26 +153,39 @@ Multiple processes using pipes, queues, and shared memory simultaneously in a co
 - **Architecture**: Modular design with separate concerns (processes, IPC, debugging, visualization)
 - **No dependencies**: Runs entirely client-side
 
+## Development Hygiene
+
+For repository consistency, use the following checks before committing changes:
+
+```bash
+npm install
+npm run lint
+npm run format:check
+```
+
+> These are development-only checks. The application still runs directly in the browser with no runtime dependencies.
+
 ## File Descriptions
 
-| File | Purpose |
-|------|---------|
-| `index.html` | Main HTML dashboard with UI layout |
-| `css/styles.css` | Complete design system with animations and themes |
-| `js/app.js` | Application controller, scenario presets, and simulation loop |
-| `js/process.js` | Process creation, state management, and lifecycle |
-| `js/pipe.js` | Pipe IPC implementation with buffer management |
-| `js/messageQueue.js` | FIFO message queue implementation |
-| `js/sharedMemory.js` | Shared memory with concurrent access tracking |
-| `js/semaphore.js` | Semaphore primitive with wait/signal operations |
-| `js/debugger.js` | Deadlock, race condition, and bottleneck detection |
-| `js/visualizer.js` | SVG rendering of process graph and animations |
-| `js/timeline.js` | Timeline visualization of process states |
-| `js/logger.js` | Event logging system and report export |
+| File                 | Purpose                                                       |
+| -------------------- | ------------------------------------------------------------- |
+| `index.html`         | Main HTML dashboard with UI layout                            |
+| `css/styles.css`     | Complete design system with animations and themes             |
+| `js/app.js`          | Application controller, scenario presets, and simulation loop |
+| `js/process.js`      | Process creation, state management, and lifecycle             |
+| `js/pipe.js`         | Pipe IPC implementation with buffer management                |
+| `js/messageQueue.js` | FIFO message queue implementation                             |
+| `js/sharedMemory.js` | Shared memory with concurrent access tracking                 |
+| `js/semaphore.js`    | Semaphore primitive with wait/signal operations               |
+| `js/debugger.js`     | Deadlock, race condition, and bottleneck detection            |
+| `js/visualizer.js`   | SVG rendering of process graph and animations                 |
+| `js/timeline.js`     | Timeline visualization of process states                      |
+| `js/logger.js`       | Event logging system and report export                        |
 
 ## Keyboard Shortcuts (Future Enhancement)
 
 Currently not implemented, but the UI is ready for:
+
 - `Space` to play/pause
 - `Right Arrow` to step
 - `Ctrl+R` to reset
