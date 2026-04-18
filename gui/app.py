@@ -23,10 +23,14 @@ from engine.process_engine import ProcessEngine
 from analyzers.deadlock_detector import DeadlockDetector
 from analyzers.bottleneck_detector import BottleneckDetector
 from analyzers.race_detector import RaceConditionDetector
+from analyzers.report_generator import ReportGenerator
 
 from gui.animated_canvas import AnimatedCanvas
 from gui.metrics_panel import MetricsPanel
 from gui.log_panel import LogPanel
+from gui.timeline_panel import TimelinePanel
+from gui.message_browser import MessageBrowser
+from gui.settings_panel import SettingsPanel
 from gui.tooltip import ToolTip
 from gui.simulation_controller import SimulationController
 from gui import scenarios
@@ -35,12 +39,12 @@ C = COLORS  # shorthand
 
 
 def _make_button(parent, text, bg, hover_bg, command, **kw):
-    """Create a styled flat button with hover effect."""
+    """Create a styled flat button with hover effect and rounded feel."""
     btn = tk.Button(
         parent, text=text, font=kw.get("font", ("Segoe UI", 10, "bold")),
         bg=bg, fg=kw.get("fg", "#fff"), activebackground=hover_bg,
         activeforeground="#fff", relief="flat", cursor="hand2",
-        padx=kw.get("padx", 14), pady=kw.get("pady", 6),
+        padx=kw.get("padx", 16), pady=kw.get("pady", 7),
         command=command, bd=0,
     )
     btn.bind("<Enter>", lambda e: btn.config(bg=hover_bg))
@@ -54,7 +58,7 @@ class IPCDebuggerGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.configure(bg=C["bg"])
-        self.root.minsize(1300, 800)
+        self.root.minsize(1400, 850)
 
         # ── Core modules ──
         self.logger = EventLogger()
@@ -63,6 +67,7 @@ class IPCDebuggerGUI:
         self.deadlock_detector = DeadlockDetector(self.sync_manager, self.logger)
         self.bottleneck_detector = BottleneckDetector(self.logger)
         self.race_detector = RaceConditionDetector(self.logger)
+        self.report_generator = ReportGenerator(self.logger)
 
         # ── Data ──
         self.channels: List[IPCChannel] = []
@@ -92,9 +97,8 @@ class IPCDebuggerGUI:
         self._build_main_content()
         self._build_log_area()
         self._register_log_callback()
-        self._refresh_canvas()
 
-        # Wire controller → UI refresh callbacks
+        # Wire controller → UI refresh callbacks (before first refresh)
         self.sim_ctrl.animated_canvas = self.animated_canvas
         self.sim_ctrl.metrics_panel = self.metrics_panel
         self.sim_ctrl.log_panel = self.log_panel
@@ -102,6 +106,18 @@ class IPCDebuggerGUI:
         self.sim_ctrl._refresh_process_cards_fn = self._refresh_process_cards
         self.sim_ctrl._refresh_connection_cards_fn = self._refresh_connection_cards
         self.sim_ctrl._update_pid_lists_fn = self._update_pid_lists
+
+        # Wire process engine to canvas for tooltip stats
+        self.animated_canvas._process_engine = self.process_engine
+
+        # Wire pulse animations to send/receive events
+        def _on_event_pulse(event):
+            if event.action == "SEND" and event.source_pid and event.dest_pid:
+                self.animated_canvas.pulse_edge(event.source_pid, event.dest_pid)
+        self.logger.on('new_event', _on_event_pulse)
+
+        # Initial canvas draw (now safe — animated_canvas is wired)
+        self._refresh_canvas()
 
         # ── Keyboard Shortcuts (Fix #12) ──
         root.bind("<Control-s>", lambda e: self.sim_ctrl.start_simulation())
@@ -116,17 +132,22 @@ class IPCDebuggerGUI:
     def _setup_styles(self) -> None:
         style = ttk.Style()
         style.theme_use('clam')
-        # Fix #6: Use wider tab padding so labels aren't truncated
-        style.configure("TNotebook", background=C["bg"], borderwidth=0)
-        style.configure("TNotebook.Tab", background=C["panel_bg"],
-                        foreground=C["text_muted"], font=("Segoe UI", 10, "bold"),
-                        padding=[20, 8])
+
+        # Notebook: clean dark tabs with strong selection contrast
+        style.configure("TNotebook", background=C["bg"], borderwidth=0,
+                        tabmargins=[2, 4, 2, 0])
+        style.configure("TNotebook.Tab",
+                        background="#1e293b",
+                        foreground="#94a3b8",
+                        font=("Segoe UI", 8, "bold"),
+                        padding=[4, 5])
         style.map("TNotebook.Tab",
-                  background=[("selected", C["card_bg"])],
-                  foreground=[("selected", C["accent"])])
+                  background=[("selected", "#2563eb")],
+                  foreground=[("selected", "#ffffff")],
+                  expand=[("selected", [1, 1, 1, 0])])
         style.configure("TFrame", background=C["bg"])
 
-        # Fix #10: Combobox dark theme styling
+        # Combobox dark theme styling
         style.map("TCombobox",
                   fieldbackground=[("readonly", "#1e2030")],
                   foreground=[("readonly", "#cdd6f4")],
@@ -139,78 +160,118 @@ class IPCDebuggerGUI:
     # HEADER BAR
     # ════════════════════════════════════════════
     def _build_header(self) -> None:
-        header = tk.Frame(self.root, bg=C["panel_bg"], height=56)
-        header.pack(fill="x")
-        header.pack_propagate(False)
+        # Gradient-style header with two-tone background
+        header_outer = tk.Frame(self.root, bg="#0c1425", height=64)
+        header_outer.pack(fill="x")
+        header_outer.pack_propagate(False)
 
-        # Title
-        tk.Label(header, text="\U0001f52c IPC Debugger & Visualization Tool",
-                 font=("Segoe UI", 15, "bold"), bg=C["panel_bg"],
-                 fg=C["text"]).pack(side="left", padx=16)
+        header = tk.Frame(header_outer, bg="#0c1425")
+        header.pack(fill="both", expand=True, padx=12)
 
-        # Right side: sim controls + status
-        right = tk.Frame(header, bg=C["panel_bg"])
-        right.pack(side="right", padx=12)
+        # Title with icon
+        title_frame = tk.Frame(header, bg="#0c1425")
+        title_frame.pack(side="left")
+        tk.Label(title_frame, text="IPC Debugger & Visualization Tool",
+                 font=("Segoe UI", 16, "bold"), bg="#0c1425",
+                 fg="#f1f5f9").pack(side="left", padx=(8, 0))
+        tk.Label(title_frame, text="v2.0",
+                 font=("Segoe UI", 9), bg="#0c1425",
+                 fg="#64748b").pack(side="left", padx=(8, 0), pady=(4, 0))
 
+        # Right side: speed + buttons + status
+        right = tk.Frame(header, bg="#0c1425")
+        right.pack(side="right")
+
+        # Status indicator (far right)
         self._status_label = tk.Label(
-            right, text="\u25cb  Idle", font=("Segoe UI", 10),
-            bg=C["panel_bg"], fg=C["text_muted"])
-        self._status_label.pack(side="right", padx=12)
+            right, text="  Idle  ", font=("Segoe UI", 10, "bold"),
+            bg="#1e293b", fg="#94a3b8", padx=12, pady=4)
+        self._status_label.pack(side="right", padx=(12, 4))
         self.sim_ctrl.status_label = self._status_label
 
-        _make_button(right, "\U0001f504 Reset", C["btn_secondary"],
-                     C["btn_secondary_hover"], self.sim_ctrl.reset_all,
-                     font=("Segoe UI", 9)).pack(side="right", padx=4)
-        _make_button(right, "\u23f9 Stop", C["btn_danger"],
-                     C["btn_danger_hover"], self.sim_ctrl.stop_simulation,
-                     font=("Segoe UI", 9, "bold")).pack(side="right", padx=4)
+        # Separator line between status and buttons
+        tk.Frame(right, bg="#334155", width=1).pack(side="right", fill="y", padx=4, pady=8)
 
-        # Fix #2: Store pause button reference for text toggle
+        # Buttons group — with spacers for visual grouping
+        _make_button(right, "Reset", C["btn_secondary"],
+                     C["btn_secondary_hover"], self.sim_ctrl.reset_all,
+                     font=("Segoe UI", 9, "bold")).pack(side="right", padx=3)
+
+        tk.Frame(right, bg="#334155", width=1).pack(side="right", fill="y", padx=4, pady=8)
+
+        _make_button(right, "Stop", C["btn_danger"],
+                     C["btn_danger_hover"], self.sim_ctrl.stop_simulation,
+                     font=("Segoe UI", 9, "bold")).pack(side="right", padx=3)
+
         self._pause_btn = _make_button(
-            right, "\u23f8 Pause", C["btn_warning"],
+            right, "Pause", C["btn_warning"],
             C["btn_warning_hover"], self.sim_ctrl.pause_simulation,
             font=("Segoe UI", 9, "bold"))
-        self._pause_btn.pack(side="right", padx=4)
+        self._pause_btn.pack(side="right", padx=3)
         self.sim_ctrl.pause_btn = self._pause_btn
 
-        _make_button(right, "\u25b6 Start", C["btn_success"],
+        _make_button(right, "Start", C["btn_success"],
                      C["btn_success_hover"], self.sim_ctrl.start_simulation,
-                     font=("Segoe UI", 9, "bold")).pack(side="right", padx=4)
+                     font=("Segoe UI", 9, "bold")).pack(side="right", padx=3)
 
-        # Divider
-        tk.Frame(self.root, bg=C["accent"], height=2).pack(fill="x")
+        _make_button(right, "Step", C["btn_primary"],
+                     C["btn_primary_hover"], self.sim_ctrl.step_simulation,
+                     font=("Segoe UI", 9, "bold")).pack(side="right", padx=3)
+
+        tk.Frame(right, bg="#334155", width=1).pack(side="right", fill="y", padx=4, pady=8)
+
+        # Speed control — wider and clearer
+        speed_frame = tk.Frame(right, bg="#0c1425")
+        speed_frame.pack(side="right", padx=6)
+        tk.Label(speed_frame, text="Speed", font=("Segoe UI", 9, "bold"),
+                 bg="#0c1425", fg="#94a3b8").pack(side="left", padx=(0, 4))
+        self._speed_var = tk.DoubleVar(value=1.0)
+        self.sim_ctrl.speed_var = self._speed_var
+        speed_scale = tk.Scale(speed_frame, from_=0.25, to=5.0, resolution=0.25,
+                                orient="horizontal", variable=self._speed_var,
+                                font=("Segoe UI", 8), bg="#0c1425",
+                                fg="#e2e8f0", highlightthickness=0,
+                                troughcolor="#334155",
+                                activebackground=C["accent"],
+                                length=160, showvalue=True, sliderlength=20)
+        speed_scale.pack(side="left")
+
+        # Accent divider (thicker gradient feel)
+        divider = tk.Frame(self.root, height=3, bg=C["accent"])
+        divider.pack(fill="x")
 
     # ════════════════════════════════════════════
     # MAIN CONTENT: Tabs + Canvas
     # ════════════════════════════════════════════
     def _build_main_content(self) -> None:
-        # Fix #11: Use PanedWindow for resizable canvas/log split
+        # PanedWindow for resizable canvas/log split
         self._main_pane = tk.PanedWindow(
-            self.root, orient=tk.VERTICAL, sashrelief=tk.FLAT,
-            sashwidth=4, bg="#313244")
+            self.root, orient=tk.VERTICAL, sashrelief=tk.RAISED,
+            sashwidth=6, bg="#475569", opaqueresize=True)
         self._main_pane.pack(fill="both", expand=True)
 
-        # Upper area: tabs + canvas
+        # Upper area: tabs + canvas (gets most of the space)
         upper = tk.Frame(self._main_pane, bg=C["bg"])
-        self._main_pane.add(upper, minsize=300)
+        self._main_pane.add(upper, minsize=400, stretch="always")
 
         main = tk.Frame(upper, bg=C["bg"])
         main.pack(fill="both", expand=True)
 
-        # LEFT: Tab panel (Fix #6: wider sidebar)
-        left = tk.Frame(main, bg=C["bg"], width=420)
-        left.pack(side="left", fill="y", padx=(8, 0), pady=8)
+        # LEFT: Tab panel — wider for readable labels
+        left = tk.Frame(main, bg=C["bg"], width=380)
+        left.pack(side="left", fill="y", padx=(6, 0), pady=6)
         left.pack_propagate(False)
         self._build_tabs(left)
 
-        # Separator
-        tk.Frame(main, bg=C["card_bg"], width=2).pack(side="left", fill="y", pady=8)
+        # Separator line
+        tk.Frame(main, bg="#475569", width=2).pack(side="left", fill="y", pady=8)
 
         # RIGHT: Canvas + Metrics
         right = tk.Frame(main, bg=C["bg"])
-        right.pack(side="left", fill="both", expand=True, padx=(0, 8), pady=8)
+        right.pack(side="left", fill="both", expand=True, padx=(4, 6), pady=6)
 
-        canvas_frame = tk.Frame(right, bg=C["panel_bg"], relief="flat")
+        canvas_frame = tk.Frame(right, bg=C["panel_bg"], relief="flat",
+                                highlightthickness=1, highlightbackground="#334155")
         canvas_frame.pack(fill="both", expand=True)
         self.animated_canvas = AnimatedCanvas(canvas_frame)
 
@@ -225,17 +286,46 @@ class IPCDebuggerGUI:
         nb = ttk.Notebook(parent)
         nb.pack(fill="both", expand=True)
 
-        # Fix #6: Complete short tab labels
+        # Short tab labels to fit all 7 in sidebar
         tabs = [
-            ("\U0001f4e6 Processes", self._build_process_tab),
-            ("\U0001f517 Connect", self._build_connection_tab),
-            ("\U0001f50d Analyze", self._build_analysis_tab),
-            ("\u26a1 Scenarios", self._build_scenario_tab),
+            ("Proc", self._build_process_tab),
+            ("Conn", self._build_connection_tab),
+            ("Anlz", self._build_analysis_tab),
+            ("Scen", self._build_scenario_tab),
         ]
         for title, builder in tabs:
             frame = tk.Frame(nb, bg=C["bg"])
             builder(frame)
-            nb.add(frame, text=f"  {title}  ")
+            nb.add(frame, text=title)
+
+        # Timeline tab
+        tl_frame = tk.Frame(nb, bg=C["bg"])
+        self.timeline_panel = TimelinePanel(tl_frame)
+        self.timeline_panel.show()
+        tl_btn_frame = tk.Frame(tl_frame, bg=C["bg"])
+        tl_btn_frame.pack(fill="x", padx=8, pady=4)
+        _make_button(tl_btn_frame, "Refresh Timeline",
+                     C["btn_primary"], C["btn_primary_hover"],
+                     self._refresh_timeline,
+                     font=("Segoe UI", 9, "bold")).pack(fill="x")
+        nb.add(tl_frame, text="Time")
+
+        # Messages tab
+        msg_frame = tk.Frame(nb, bg=C["bg"])
+        self.message_browser = MessageBrowser(msg_frame)
+        msg_btn_frame = tk.Frame(msg_frame, bg=C["bg"])
+        msg_btn_frame.pack(fill="x", padx=8, pady=4)
+        _make_button(msg_btn_frame, "Refresh Messages",
+                     C["btn_primary"], C["btn_primary_hover"],
+                     self._refresh_messages,
+                     font=("Segoe UI", 9, "bold")).pack(fill="x")
+        nb.add(msg_frame, text="Msgs")
+
+        # Settings tab
+        settings_frame = tk.Frame(nb, bg=C["bg"])
+        self.settings_panel = SettingsPanel(settings_frame)
+        self.settings_panel.auto_deadlock_var = self.auto_deadlock_var
+        nb.add(settings_frame, text="Cfg")
 
     # ── PROCESS TAB ──
     def _build_process_tab(self, parent) -> None:
@@ -477,6 +567,16 @@ class IPCDebuggerGUI:
 
     # ── SCENARIO TAB ──
     def _build_scenario_tab(self, parent) -> None:
+        # Scrollable scenario list
+        scen_scroll = tk.Canvas(parent, bg=C["bg"], highlightthickness=0)
+        scen_scroll.pack(fill="both", expand=True)
+        scen_inner = tk.Frame(scen_scroll, bg=C["bg"])
+        scen_scroll.create_window((0, 0), window=scen_inner, anchor="nw")
+        scen_inner.bind("<Configure>",
+            lambda e: scen_scroll.configure(scrollregion=scen_scroll.bbox("all")))
+        scen_scroll.bind("<MouseWheel>",
+            lambda e: scen_scroll.yview_scroll(-1*(e.delta//120), "units"))
+
         scens = [
             ("\U0001f4e6 Normal IPC", "Producer \u2192 Consumer",
              "A producer sends messages to a consumer\nvia a queue channel. Great for basics.",
@@ -487,9 +587,15 @@ class IPCDebuggerGUI:
             ("\U0001f4ca Bottleneck Scenario", "Fast \u2192 Slow",
              "A fast producer overwhelms a slow\nconsumer. Queue fills up over time.",
              C["btn_warning"], C["btn_warning_hover"], scenarios.load_bottleneck),
+            ("\u26a1 Race Condition", "3 Writers \u2192 Shared Memory",
+             "Three writers concurrently access shared\nmemory without locks. Detects data races.",
+             C["btn_danger"], C["btn_danger_hover"], scenarios.load_race_condition),
+            ("\U0001f517 Pipeline", "Source \u2192 Stage1 \u2192 Stage2 \u2192 Sink",
+             "Multi-stage pipeline using pipe, queue,\nand shared memory. Mixed IPC demonstration.",
+             C["btn_success"], C["btn_success_hover"], scenarios.load_pipeline),
         ]
         for title, subtitle, desc, color, hover, loader in scens:
-            card = tk.Frame(parent, bg=C["panel_bg"], padx=16, pady=12)
+            card = tk.Frame(scen_inner, bg=C["panel_bg"], padx=16, pady=12)
             card.pack(fill="x", padx=8, pady=4)
             tk.Label(card, text=title, font=("Segoe UI", 12, "bold"),
                      bg=C["panel_bg"], fg=C["text"]).pack(anchor="w")
@@ -502,17 +608,18 @@ class IPCDebuggerGUI:
                          lambda fn=loader: self._load_and_run_scenario(fn),
                          font=("Segoe UI", 10, "bold")).pack(fill="x")
 
-        tk.Frame(parent, bg=C["bg"], height=16).pack()
-        _make_button(parent, "\U0001f504 Reset Everything",
+        tk.Frame(scen_inner, bg=C["bg"], height=16).pack()
+        _make_button(scen_inner, "\U0001f504 Reset Everything",
                      C["btn_secondary"], C["btn_secondary_hover"],
                      self.sim_ctrl.reset_all).pack(fill="x", padx=24)
 
         # Export section
-        tk.Label(parent, text="\U0001f4be Export", font=("Segoe UI", 11, "bold"),
+        tk.Label(scen_inner, text="\U0001f4be Export", font=("Segoe UI", 11, "bold"),
                  bg=C["bg"], fg=C["text"]).pack(anchor="w", padx=16, pady=(16, 4))
-        export_frame = tk.Frame(parent, bg=C["bg"])
+        export_frame = tk.Frame(scen_inner, bg=C["bg"])
         export_frame.pack(fill="x", padx=16)
-        for text, cmd in [("CSV Log", self._export_log_csv),
+        for text, cmd in [("HTML Report", self._export_html_report),
+                          ("CSV Log", self._export_log_csv),
                           ("PNG Graph", self._save_graph_png),
                           ("Metrics", self._export_metrics_report)]:
             _make_button(export_frame, text, C["btn_secondary"],
@@ -524,8 +631,10 @@ class IPCDebuggerGUI:
     # LOG AREA (Fix #11: PanedWindow for resizable log area)
     # ════════════════════════════════════════════
     def _build_log_area(self) -> None:
-        log_frame = tk.Frame(self._main_pane, bg=C["panel_bg"])
-        self._main_pane.add(log_frame, minsize=120)
+        log_frame = tk.Frame(self._main_pane, bg=C["panel_bg"],
+                             highlightthickness=1, highlightbackground="#334155")
+        # Log panel gets less space — max 180px initially, resizable
+        self._main_pane.add(log_frame, minsize=100, height=170, stretch="never")
         self.log_panel = LogPanel(log_frame)
 
     # ════════════════════════════════════════════
@@ -659,10 +768,9 @@ class IPCDebuggerGUI:
         for i in reversed(to_remove):
             self.channels[i].close()
             self.channels.pop(i)
-        self.connections = [c for c in self.connections
-                           if c["source"] != pid and c["dest"] != pid]
-        # Update the shared reference
-        self.sim_ctrl.connections = self.connections
+        # Mutate in-place to preserve shared reference with sim_ctrl
+        self.connections[:] = [c for c in self.connections
+                               if c["source"] != pid and c["dest"] != pid]
         for cfg in self.process_configs.values():
             cfg.send_channels = [ch for ch in cfg.send_channels
                                  if ch.source_pid != pid and ch.dest_pid != pid]
@@ -785,7 +893,7 @@ class IPCDebuggerGUI:
         self.sim_ctrl.start_simulation()
 
     def _load_scenario(self, loader_fn) -> None:
-        self.sim_ctrl.reset_all()
+        self.sim_ctrl.reset_all(force=True)
         configs, connections, lock_setup = loader_fn()
         for pid, cfg in configs.items():
             self.process_configs[pid] = cfg
@@ -819,6 +927,28 @@ class IPCDebuggerGUI:
     # ════════════════════════════════════════════
     # EXPORT
     # ════════════════════════════════════════════
+    def _export_html_report(self) -> None:
+        """Generate and save a comprehensive HTML analysis report."""
+        fp = filedialog.asksaveasfilename(
+            defaultextension=".html",
+            filetypes=[("HTML", "*.html")],
+            title="Export HTML Report")
+        if not fp:
+            return
+        # Collect analysis data
+        metrics = self.bottleneck_detector.get_channel_metrics(self.channels) if self.channels else []
+        bottlenecks = self.bottleneck_detector.analyze_channels(self.channels) if self.channels else []
+        deadlock_cycles = self.deadlock_detector.last_cycles
+        race_reports = self.race_detector.detect_races()
+        events = self.logger.get_all_events()
+
+        html = self.report_generator.generate_html_report(
+            metrics, bottlenecks, deadlock_cycles, race_reports, events
+        )
+        with open(fp, 'w', encoding='utf-8') as f:
+            f.write(html)
+        messagebox.showinfo("Export", f"HTML Report saved to {fp}")
+
     def _export_log_csv(self) -> None:
         import csv
         fp = filedialog.asksaveasfilename(defaultextension=".csv",
@@ -878,3 +1008,14 @@ class IPCDebuggerGUI:
         pids = list(self.process_configs.keys())
         self.combo_source['values'] = pids
         self.combo_dest['values'] = pids
+
+    def _refresh_timeline(self) -> None:
+        """Update the timeline panel with current event data."""
+        events = self.logger.get_all_events()
+        pids = list(self.process_configs.keys())
+        self.timeline_panel.update_timeline(events, pids)
+
+    def _refresh_messages(self) -> None:
+        """Update the message browser with current events."""
+        events = self.logger.get_all_events()
+        self.message_browser.update_events(events)

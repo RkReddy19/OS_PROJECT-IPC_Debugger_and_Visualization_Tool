@@ -18,15 +18,17 @@ class LogPanel:
 
         header = tk.Frame(parent, bg=COLORS["panel_bg"])
         header.pack(fill="x", padx=8, pady=(6, 2))
-        tk.Label(header, text="\U0001f4dd Event Log", font=("Segoe UI", 11, "bold"),
+        tk.Label(header, text="Event Log", font=("Segoe UI", 11, "bold"),
                  bg=COLORS["panel_bg"], fg=COLORS["accent"]).pack(side="left")
         clear_btn = tk.Button(
-            header, text="Clear", font=("Segoe UI", 9),
-            bg=COLORS["btn_secondary"], fg=COLORS["text"],
-            activebackground=COLORS["btn_secondary_hover"],
+            header, text="  Clear  ", font=("Segoe UI", 9, "bold"),
+            bg="#475569", fg=COLORS["text"],
+            activebackground="#64748b",
             activeforeground=COLORS["text"], relief="flat",
-            padx=10, pady=2, cursor="hand2", command=self.clear,
+            padx=12, pady=3, cursor="hand2", command=self.clear, bd=0,
         )
+        clear_btn.bind("<Enter>", lambda e: clear_btn.config(bg="#64748b"))
+        clear_btn.bind("<Leave>", lambda e: clear_btn.config(bg="#475569"))
         clear_btn.pack(side="right")
 
         self.text = scrolledtext.ScrolledText(

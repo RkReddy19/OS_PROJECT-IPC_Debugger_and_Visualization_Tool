@@ -1,162 +1,389 @@
 # Software System Design: Inter-Process Communication (IPC) Debugger and Visualization Tool
 
 ## 1. Introduction
+
 Inter-Process Communication (IPC) refers to the fundamental mechanisms provided by an operating system that allow distinct processes to manage shared data, communicate, and synchronize their actions. With modern multi-core processors increasingly relying on concurrency to improve performance, designing robust IPC mechanisms is critical. However, debugging IPC is arguably one of the most challenging aspects of systems programming. Concurrent execution often introduces non-deterministic behaviors—such as race conditions (where outcomes depend on unpredictable scheduling sequence), deadlocks (where processes wait indefinitely on each other), and subtle synchronization issues. Traditional debuggers, which step through code incrementally, often alter the delicate timing of events (known as the "probe effect"), thereby masking or fabricating concurrent bugs.
 
 An IPC Debugger and Visualization Tool provides a high-level, visual approach to monitor, pause, and analyze process interactions dynamically. This enables developers and students to trace communication flows, detect cycles, and identify performance bottlenecks without altering temporal execution behaviors.
 
 ## 2. System Objectives
+
 The primary objectives of the IPC Debugger and Visualization Tool are:
-1. **Interactive Simulation:** Provide an accessible graphical environment to simulate complex concurrent processes and intricate process topologies.
-2. **Visual Tracing:** Graphically capture and display messages passed through various IPC channels in real-time, bridging theoretical concepts with visual representation.
-3. **Automated Deadlock Detection:** Periodically construct and evaluate Wait-For Graphs (WFG) from the active simulation state to automatically diagnose deadlocks.
-4. **Performance Profiling and Analytics:** Measure the communication overhead, identify bottlenecks, and record core IPC metrics such as latency and queue throughput.
-5. **Educational Application:** Serve as an interactive learning platform for Operating System students to visualize abstract synchronization concepts securely in user space.
+
+1. **Interactive Simulation:** Provide an accessible graphical environment to simulate complex concurrent processes and intricate process topologies with configurable behaviors and speeds.
+2. **Visual Tracing:** Graphically capture and display messages passed through various IPC channels in real-time using animated canvas with pulse effects, node drag interaction, and hover tooltips.
+3. **Automated Deadlock Detection:** Periodically construct and evaluate Wait-For Graphs (WFG) from the active simulation state to automatically diagnose ALL deadlock cycles.
+4. **Race Condition Detection:** Monitor concurrent resource access patterns using a sliding-window algorithm to flag potential data corruption scenarios.
+5. **Performance Profiling and Analytics:** Measure communication overhead, identify bottlenecks via queue depth, latency (FIFO-paired), and throughput ratio analysis, and generate comprehensive reports with actionable recommendations.
+6. **Educational Application:** Serve as an interactive learning platform for Operating System students to visualize abstract synchronization concepts through 5 preset scenarios covering deadlocks, bottlenecks, race conditions, and multi-stage pipelines.
 
 ## 3. Core Operating System Concepts
-To build the foundation of the debugger, several core OS principles must be addressed:
-*   **Processes and Concurrency:** Processes are independent execution units equipped with isolated memory spaces. Concurrency arises when multiple processes execute simultaneously, requiring strict coordination.
+
+To build the foundation of the debugger, several core OS principles are addressed:
+
+*   **Processes and Concurrency:** Processes are independent execution units equipped with isolated memory spaces. Concurrency arises when multiple processes execute simultaneously, requiring strict coordination. In this system, processes are simulated using daemon threads to enable safe data sharing while demonstrating concurrent behavior patterns.
+
 *   **IPC Mechanisms:**
-    *   **Pipes:** Unidirectional or bidirectional channels for streaming raw byte data sequentially between connected processes.
-    *   **Message Queues:** Managed lists of structured messages allowing asynchronous, non-blocking message passing.
-    *   **Shared Memory:** A common region of memory accessible by multiple disparate processes, providing rapid IPC but requiring explicit synchronization to prevent corruption.
-*   **Synchronization:** Primitives used to enforce operational order and protect shared data:
-    *   **Mutexes (Mutual Exclusion):** Binary locks preventing multiple processes from concurrently entering a critical section.
-    *   **Semaphores:** Integer-based signaling counters to manage access to a pooled set of identical resources.
-    *   **Critical Section:** A delicate segment of code where a process reads or mutates shared resources.
-*   **Deadlocks and Race Conditions:** A race condition occurs when shared data is manipulated simultaneously, leading to undefined or inconsistent states. A deadlock is a frozen state where a set of processes are permanently blocked because each holds a critical resource while waiting for another resource acquired by a neighbor process in the set.
+    *   **Pipes:** Unidirectional point-to-point channels for streaming data sequentially between connected processes. Implemented using `queue.Queue(maxsize=1)` for blocking send/receive semantics.
+    *   **Message Queues:** FIFO-ordered buffers allowing asynchronous message passing with configurable capacity. Implemented using `queue.Queue` with depth tracking and overflow detection.
+    *   **Shared Memory:** A common memory region accessible by multiple processes, providing rapid IPC. Implemented using Python objects protected by `threading.Condition` for atomic signaling with no size limit.
+
+*   **Synchronization Primitives:**
+    *   **Mutexes (TrackedLock):** Binary locks that record the current holder PID and a set of waiting PIDs. Includes a release guard that prevents a non-holder from releasing the lock.
+    *   **Semaphores (TrackedSemaphore):** Integer-based counting semaphores that track holder sets, waiter queues, and current counter values.
+    *   **Access Logging:** All lock/semaphore operations are logged with timestamps for race condition analysis.
+
+*   **Deadlocks:** A frozen state where a set of processes are permanently blocked because each holds a resource while waiting for another held by a neighbor. Detected through Wait-For Graph cycle analysis using DFS.
+
+*   **Race Conditions:** Occur when shared data is accessed simultaneously by multiple processes without proper synchronization. Detected through temporal access pattern analysis within configurable time windows.
+
+*   **Bottlenecks:** Performance degradation when a slow consumer cannot keep up with a fast producer, causing queue overflow. Detected through queue depth, latency, and throughput ratio monitoring.
 
 ## 4. System Architecture
-The application employs a tightly coupled, 5-layer architecture ensuring a strict separation of concerns between underlying multithreaded mechanics, mathematical analysis, and user interface representation.
 
-*   **GUI Layer (Tkinter/PyQt):** The front-facing module hosting forms for user inputs, simulation control panels, state logs, and the rendering canvas.
-*   **Visualization Layer (NetworkX + Matplotlib):** Translates dynamic IPC states into mathematical graphs. Periodically updates node layouts to visually represent the topology. Nodes represent processes and resources; edges indicate message flow or lock acquisition requests.
-*   **Debugging & Analysis Layer:** Interrogates simulation state matrices asynchronously. Houses the Deadlock Detection Engine (executing cycle-finding algorithms) and the Performance/Bottleneck Analyzer.
-*   **IPC Communication Manager:** The crucial abstraction layer interfacing native OS limits with the overlying python application. It enforces standard IPC rules and intercepts payloads before they enter hardware buffers.
-*   **Process Simulation Engine:** The foundational bedrock implementing Python's `multiprocessing` library, spawning actual OS processes, and injecting user-defined behaviors into execution loops.
+The application employs a modular **7-package architecture** ensuring strict separation of concerns:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    GUI Layer (gui/)                              │
+│  ┌──────────┐  ┌─────────────┐  ┌──────────────┐  ┌─────────┐ │
+│  │ app.py   │  │ simulation  │  │ animated     │  │ panels  │ │
+│  │ Dashboard│  │ controller  │  │ canvas 60fps │  │ 6 total │ │
+│  └────┬─────┘  └──────┬──────┘  └──────────────┘  └─────────┘ │
+│       │               │                                         │
+├───────┼───────────────┼─────────────────────────────────────────┤
+│       │    Analysis Layer (analyzers/)                           │
+│  ┌────┴──────┐  ┌─────┴──────┐  ┌──────────┐  ┌────────────┐  │
+│  │ deadlock  │  │ bottleneck │  │ race     │  │ report     │  │
+│  │ detector  │  │ detector   │  │ detector │  │ generator  │  │
+│  └───────────┘  └────────────┘  └──────────┘  └────────────┘  │
+├─────────────────────────────────────────────────────────────────┤
+│              IPC Layer (ipc/)            Engine (engine/)        │
+│  ┌─────────┐ ┌────────┐ ┌──────┐  ┌──────────┐ ┌──────────┐  │
+│  │  pipe   │ │ queue  │ │ shm  │  │ process  │ │ sync     │  │
+│  │ channel │ │channel │ │ chan  │  │ engine   │ │ manager  │  │
+│  └─────────┘ └────────┘ └──────┘  └──────────┘ └──────────┘  │
+├─────────────────────────────────────────────────────────────────┤
+│                    Utility Layer (utils/)                        │
+│  ┌──────────┐  ┌───────────┐  ┌──────────┐  ┌─────────────┐   │
+│  │ models   │  │ event     │  │ event    │  │ constants   │   │
+│  │ @dataclass│  │ logger    │  │ emitter  │  │ theme/cfg   │   │
+│  └──────────┘  └───────────┘  └──────────┘  └─────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+*   **GUI Layer (`gui/`):** 10 modules — Main dashboard (`app.py`), simulation lifecycle controller, 60fps animated canvas, metrics panel (Matplotlib), timeline panel (Gantt chart), message browser (Treeview), log panel, settings panel, scenario loaders, and tooltip widget.
+*   **Analysis Layer (`analyzers/`):** 4 modules — Deadlock detection (WFG + DFS), bottleneck analysis (FIFO latency, depth, throughput), race condition detection (sliding window), and report generation (HTML/CSV/text).
+*   **IPC Layer (`ipc/`):** 5 modules — Abstract base class + 3 channel implementations (pipe, queue, shared memory) + factory function.
+*   **Engine Layer (`engine/`):** 2 modules — Process simulation engine (thread-based with pause/resume/stop) + synchronization manager (TrackedLock, TrackedSemaphore).
+*   **Utility Layer (`utils/`):** 4 modules — Data models, event logger, pub/sub event emitter, centralized constants.
 
 ## 5. Detailed Module Design
 
-### 5.1 Process Simulation Engine (multiprocessing module)
-This engine leverages Python's `multiprocessing.Process` module directly to escape the Global Interpreter Lock (GIL) and instantiate true OS-level parallelism. For every user-configured process, a native worker function is spawned, injected with a `State Manager` object that controls runtime pausing, resuming, and safe termination capabilities.
+### 5.1 Process Simulation Engine (`engine/process_engine.py`)
 
-### 5.2 IPC Manager
-Wraps the core computational IPC techniques provided by the OS:
-*   **Pipes (`multiprocessing.Pipe`):** Wraps atomic `send()` and `recv()` functions. The wrapper broadcasts an event to the Logging System before passing data through the pipe.
-*   **Message Queues (`multiprocessing.Queue`):** Decorates `put()` and `get()` functions to track exact queue depth, data origins, and time spent blocked on empty queues.
-*   **Shared Memory (`multiprocessing.Value/Array`):** Implements raw memory blocks explicitly bound to custom Lock objects to monitor synchronization integrity.
+The engine manages simulated processes using Python's `threading.Thread` for concurrent execution. Each `SimulatedProcess` wraps a daemon thread executing a configurable behavior loop:
 
-### 5.3 Synchronization Manager
-Overrides intrinsic primitive behaviors for `multiprocessing.Lock` and `multiprocessing.Semaphore`. This module records three crucial milestones: Request, Acquisition, and Release timestamps. Recording exactly who holds a lock and who is waiting is mandatory for cycle detection heuristics.
+*   **Producer:** Sends messages through assigned channels at configurable intervals.
+*   **Consumer:** Receives messages from assigned channels with timeout handling.
+*   **Producer-Consumer:** Alternates between sending and receiving operations.
 
-### 5.4 Deadlock Detection Engine
-Operates completely asynchronously, scanning the Synchronization Manager's state table. It computes a centralized **Wait-For Graph (WFG)**. In this mathematical model:
-*   Nodes are user processes.
-*   A directed edge from process $P_i$ to $P_j$ exists if $P_i$ requested a resource currently owned by $P_j$. If the algorithm detects a cycle, it triggers an exception payload to the Visualization engine.
+Key features:
+- Priority-based delay scaling: `effective_delay = delay × (11 - priority) / 10.0`
+- Lock acquisition with 5-second timeout to prevent indefinite blocking
+- 0.2s inter-lock delay to allow deadlock formation in demo scenarios
+- Pause/resume via `threading.Event` synchronization
+- Speed control multiplier applied to delays at runtime
 
-### 5.5 Bottleneck Detection Module
-Monitors real-time Message Queues sizing. If a queue's depth exceeds acceptable thresholds continually, or if a specific node exhibits a heavily skewed 'Wait-to-Execute' ratio, it dynamically tags the node as an architectural bottleneck (likely a slow consumer).
+### 5.2 IPC Channel Manager (`ipc/`)
 
-### 5.6 Event Logging System
-Features a synchronized queue managing `LogEvent` objects holding schemas of `[Timestamp, Source PID, Destination PID, Action Type, Data Size]`. This stream feeds both the graphical GUI log widgets and the Performance Analysis records.
+Three channel implementations extending the abstract `IPCChannel` base class:
 
-### 5.7 Visualization Engine (NetworkX + Matplotlib)
-Utilizes `NetworkX` to serialize the running processes into a directional graph format. At a set framerate (e.g., 10 Hz), `Matplotlib` re-calculates node positioning using physics-based Spring layouts, colors edges based on momentary state (green for IPC transfer, red for blocking), and blits the resulting frame directly onto the GUI layer.
+| Channel | Implementation | Characteristics |
+|---------|---------------|-----------------|
+| **PipeChannel** | `queue.Queue(maxsize=1)` | Point-to-point, blocking, single-buffered |
+| **QueueChannel** | `queue.Queue(maxsize=N)` | FIFO, depth tracking, peak tracking, depth history |
+| **SharedMemoryChannel** | `threading.Condition` | Atomic signaling, no message size limit, waitable |
 
-### 5.8 GUI System
-Acts as the central integrator. Employs forms for data configuration, binds signals to control engine actions, and provisions canvas space for complex graph rendering plugins. 
+All channels share:
+- `send_times[]` and `receive_times[]` for latency calculation
+- `total_bytes` tracking via UTF-8 encoding length
+- `message_count` for throughput analysis
+- Optional `race_detector` integration for automatic access logging
+- Factory function `create_channel(type, name, src, dst, logger, **kwargs)`
 
-## 6. User Interaction (IMPORTANT REQUIREMENT)
-To support testing and academic exploration, the system delegates heavy control over IPC topologies horizontally to the user. 
+### 5.3 Synchronization Manager (`engine/sync_manager.py`)
 
-### 6.1 Creating Processes Manually
-The control panel provides an "Add Process" form logic interface. When the user asserts a "New Node", the GUI assigns (or allows the user to assert) an alphanumeric identifier guaranteeing unique logical Process IDs across the active map.
+Provides tracked synchronization primitives with full metadata recording:
 
-### 6.2 Assigning Configurations
-Users dictate specific constraints dynamically to spawned processes:
-*   **Process IDs:** Configures the human-readable nodes in the NetworkX layout.
-*   **Process Priorities:** Adjusts internal delays allowing simulation of high-preference execution.
-*   **Communication Type:** Determines what underlying abstraction handles the message (Pipe, Queue, Shared Memory block).
-*   **Message/Data Generation:** Formats whether the process fires a discrete string (e.g., "Ping"), streams integer arrays, or loops execution. 
+*   **TrackedLock:** Uses a separate `_meta_lock` to protect holder/waiter metadata, avoiding deadlock between the main lock and metadata operations. The release method includes a guard that prevents a non-holder from releasing.
+*   **TrackedSemaphore:** Counting semaphore that maintains a set of current holders and a set of waiters, with full event logging.
+*   **SynchronizationManager:** Central registry providing `get_wait_for_edges()` which returns `(waiter, holder)` tuples for Wait-For Graph construction. Also maintains `access_logs` for race detection.
 
-### 6.3 Defining Communication Relationships
-Through a specialized "Connection Map" panel, users can draft edge relationships connecting nodes:
-*   *Process A -> Pipe #1 -> Process B*
-*   *Process B -> Queue #2 -> Process C*
-*   Simultaneously, *Process A and C* assert locking requests against *Mutex #1*.
+### 5.4 Deadlock Detection Engine (`analyzers/deadlock_detector.py`)
 
-### 6.4 Input Validation and Simulation Execution
-The system inherently runs pre-flight validations upon executing a simulation configuration. It guarantees:
-*   Pipes have strictly one assigned reader and one writer.
-*   Cycle detection isn't inherently broken by self-referencing.
-*   Namespacing duplicate issues are resolved.
-Valid topologies are passed functionally to the Engine, spinning up processes matching user topology.
+Operates by constructing a **Wait-For Graph (WFG)** as a `NetworkX.DiGraph`:
+
+*   **Nodes:** Active process IDs
+*   **Edges:** Directed edge `waiter → holder` meaning the waiter is blocked by the holder
+*   **Detection:** Uses `nx.simple_cycles()` to find **ALL** cycles (not just the first)
+*   **Educational DFS:** Manual 3-color marking algorithm (WHITE=0, GRAY=1, BLACK=2) available for step-through learning
+
+Algorithm flow:
+1. Clear WFG
+2. Add all process IDs as nodes
+3. Query `SynchronizationManager.get_wait_for_edges()`
+4. Add edges: waiter → holder
+5. Run `nx.simple_cycles()` for all cycle detection
+6. Log each cycle with involved processes
+7. Cache in `last_cycles` for visualization highlighting
+
+### 5.5 Bottleneck Detection Module (`analyzers/bottleneck_detector.py`)
+
+Three-metric analysis engine with FIFO-based latency correction:
+
+1. **Queue Depth Analysis:** Compares current queue depth against configurable threshold. Severity: CRITICAL (>2x threshold) or HIGH.
+2. **Latency Analysis (FIFO-paired):** Uses a deque of unmatched send times. Each receive pops the oldest matching send, correctly handling FIFO ordering.
+3. **Throughput Ratio:** Compares received/sent ratio against threshold (default 0.5). Flags possible message loss or underperforming consumers.
+
+Output: `BottleneckReport` dataclass with channel name, channel type, severity, metric, value, and details.
+
+### 5.6 Race Condition Detector (`analyzers/race_detector.py`)
+
+Sliding-window algorithm detecting concurrent unsafe access:
+
+- Records `(timestamp, pid, access_type, locked)` tuples per resource
+- For each pair of accesses within the time window (default 50ms):
+  - Different PIDs ✓
+  - At least one write ✓
+  - Not both locked ✓
+  → Flag as race condition
+- Outputs: `RaceReport` with resource name, accessor PIDs, access type, and details
+- `locked` defaults to `False` to prevent silent false negatives
+
+### 5.7 Report Generation Engine (`analyzers/report_generator.py`)
+
+Generates comprehensive analysis reports in three formats:
+
+*   **HTML Report:** Styled dark-theme page with CSS grid summary cards, metrics tables, bottleneck/deadlock/race analysis sections, and actionable recommendations.
+*   **CSV Export:** Channel metrics in spreadsheet-compatible format.
+*   **Text Summary:** Plain-text report with sections for metrics, issues, and recommendations.
+*   **Recommendations Engine:** Generates context-aware optimization suggestions based on detected bottlenecks, deadlocks, and race conditions.
+
+### 5.8 Event Logging System (`utils/event_logger.py`)
+
+Thread-safe centralized logging built on the `EventEmitter` mixin:
+
+- Bounded `deque(maxlen=10000)` prevents unbounded memory growth
+- `LogEvent` dataclass: timestamp, source_pid, dest_pid, action, data_size, details, channel_name, channel_type
+- Pub/sub dispatch via `emit('new_event', event)` — callbacks fire outside the lock to prevent GUI deadlocks
+- Error-resilient callbacks: bad callbacks don't crash the emitter
+
+### 5.9 Animated Canvas Visualization (`gui/animated_canvas.py`)
+
+Custom 60fps Tkinter Canvas with rich interactive features:
+
+*   **Smooth Interpolation:** Position lerping when topology changes (configurable speed)
+*   **Interactive Dragging:** Click and drag nodes to reposition
+*   **Hover Tooltips:** Shows process state, behavior, sent/received counts
+*   **Message Pulse Animation:** Yellow dot travels along edge on each SEND event
+*   **Deadlock Glow:** Red pulsing rings around deadlocked nodes
+*   **Node Shadows:** Subtle dark shadows for depth effect
+*   **State Indicators:** Small colored dot below each node matching state
+*   **Legend Overlay:** Shows both process states and channel type line styles
+*   **Edge Labels:** Channel name + type with readable positioning
+
+Layout: NetworkX spring layout with seed for reproducibility, cached by topology hash.
+
+### 5.10 GUI Dashboard (`gui/app.py`)
+
+Central orchestrator with modern dark-themed 7-tab layout:
+
+| Tab | Purpose |
+|-----|---------|
+| 📦 Processes | Add/remove processes, view process cards with live stats |
+| 🔗 Connect | Wire channels between processes, view connection cards |
+| 🔍 Analyze | Manual detection buttons + configurable thresholds |
+| ⚡ Scenarios | 5 preset scenarios + reset + export (HTML/CSV/PNG) |
+| 📅 Timeline | Gantt-style process lifecycle chart (Matplotlib) |
+| 📨 Messages | Filterable, searchable, sortable event history |
+| ⚙ Settings | Animation FPS, auto-detect toggles, race window, logging |
+
+Header bar: ▶ Start | ⏯ Step | ⏸ Pause | ⏹ Stop | 🔄 Reset | Speed Slider (0.25x–5x) | Status
+
+### 5.11 Simulation Controller (`gui/simulation_controller.py`)
+
+Extracted lifecycle management preventing "God class" GUI:
+- Start/pause/resume/stop with proper state transitions
+- `reset_all(force=True)` for programmatic resets (no confirmation dialog)
+- Speed control applying delay multiplier to all processes
+- Step mode: run one cycle (~200ms) then auto-pause
+- Auto-deadlock detection in background threads
+- UI refresh timer (2-second interval)
+
+## 6. User Interaction
+
+### 6.1 Creating Processes
+The Processes tab provides a form with fields for Process ID, Priority (1-10), Behavior (producer/consumer/producer_consumer), Message template, and Delay (seconds). Each process appears as a card with live status updates.
+
+### 6.2 Defining Connections
+The Connect tab provides dropdowns for source/destination process and channel type (pipe/queue/shared_memory), plus a channel name field. Connections appear as styled edges on the canvas.
+
+### 6.3 Running Scenarios
+Five preset scenarios are available as one-click "Load & Run" cards:
+1. **Normal IPC:** Producer → Consumer via queue
+2. **Deadlock:** 3-process circular lock dependency
+3. **Bottleneck:** Fast producer → slow consumer with queue overflow
+4. **Race Condition:** 3 concurrent writers to shared memory
+5. **Pipeline:** Source → Stage1 → Stage2 → Sink using pipe → queue → shared_memory
+
+### 6.4 Analysis & Export
+- **Detection:** Click buttons or enable auto-detection for deadlocks, bottlenecks, and races
+- **Timeline:** View Gantt chart of process states over time
+- **Messages:** Browse and filter all events by action type, process, or search text
+- **Export:** HTML report (with recommendations), CSV log, PNG graph, metrics text file
 
 ## 7. Working Flow of the System
-1. **Definition & Validation Phase:** User creates Node A (Producer) and Node B (Consumer) linked by Queue X. The Validation hook approves the topological graph structure.
-2. **Initialization Phase:** Overarching coordinating structure generates Python's `multiprocessing.Queue` instance and executes respective `Process()` calls.
-3. **Execution Phase:** Node A pushes data. The intercept mechanism documents log: `[A sent 12 bytes via Queue X at 1.05s]`. Node B intercepts the queue contents, firing independent logs.
-4. **Analysis Phase:** Background engines trace logs and states. Dependency structures are updated dynamically. Average node latencies are updated in the UI cache context.
-5. **Visualization Phase:** Graph representations interpret data buffers, rendering animated edge weights across visual lines depicting IPC message transmissions. Process blocks print out directly into the Scrolling System Log panel.
+
+1. **Configuration Phase:** User creates processes and connections via the tabbed GUI, or loads a preset scenario.
+2. **Validation Phase:** Input validation prevents duplicate PIDs, self-connections, and invalid parameters.
+3. **Execution Phase:** Daemon threads execute behavior loops. Every SEND triggers a log event and a canvas pulse animation. Auto-refresh updates the topology every 2 seconds.
+4. **Analysis Phase:** Detection engines run on-demand or automatically in background threads. Results are displayed in the GUI and logged.
+5. **Visualization Phase:** The 60fps canvas interpolates positions, draws styled edges, renders node state colors, and animates message pulses. The timeline and metrics panels update on demand.
+6. **Reporting Phase:** Users can export comprehensive HTML reports with summary cards, analysis tables, and actionable recommendations.
 
 ## 8. Deadlock Detection Algorithm
+
 ### The Wait-For Graph (WFG) Paradigm
-In scenarios where shared resource allocation subsets strictly require single mutually-exclusive locks, deadlocks represent circular resource requests.
-*   **Vertices (V):** Active running processes.
-*   **Edges (E):** Directed edge $[P_x \rightarrow P_y]$ specifies process $P_x$ has executed a blocking call on a Mutex presently locked by process $P_y$.
 
-### Cycle Detection via Depth-First Search (DFS)
-To identify deadlocks asynchronously:
-1.  The mathematical WFG is reconstructed dynamically by the polling thread reading the locked synchronization registry.
-2.  A standard DFS algorithm explores the NetworkX directed acyclic structure.
-3.  Recursively marks each node computationally:
-    *   **White (0):** Unexplored topological node.
-    *   **Gray (1):** Actively exploring down current subgraph.
-    *   **Black (2):** Backtracked edge, guaranteed to be cycle-free.
-4.  If DFS algorithm visits a distinct `Gray` node from its recurrent stack, a direct path dependency back-edge is located, fundamentally proving a cycle condition has occurred.
-5.  **Output Visualization:** The UI aggressively halts normal logging, isolates the cyclic nodes mathematically, highlights them deep red graphically, and alerts users.
+*   **Vertices (V):** Active running processes
+*   **Edges (E):** Directed edge P_x → P_y specifies process P_x has executed a blocking call on a resource currently held by P_y
 
-## 9. Performance Analysis Matrix
-The Bottleneck Detection algorithm outputs primary quantitative performance indices to the interface:
-*   **Latency:** Computational delta elapsed between a message byte sequence being serialized into an IPC tunnel and deserialized out by the destination node.
-*   **Throughput/Bandwidth:** Standardized byte arrays successfully translated over specific pipes or queues per second.
-*   **Waiting Time (Overhead):** Calculated total CPU duration process sub-threads spend asleep on locked synchronization queues while awaiting Mutex unlocks.
-*   **Bottleneck Tagging:** Evaluates average queue volumes mathematically via Little’s Law $(L = \lambda W)$. Growing queues mathematically designate consumers unable to match throughput lambda requests, resulting in GUI flagging. 
+### Cycle Detection
+
+The system provides two detection methods:
+
+**1. Production Method (NetworkX):**
+- Uses `nx.simple_cycles()` to find ALL cycles in the WFG
+- Returns complete list of cycle edges for visualization
+
+**2. Educational Method (Manual DFS — 3-Color Marking):**
+1. Initialize all nodes as WHITE (0/unexplored)
+2. For each unvisited node, start DFS:
+   - Mark current node GRAY (1/in-progress)
+   - For each successor:
+     - If GRAY → back edge found → CYCLE DETECTED
+     - If WHITE → recurse
+   - Mark current node BLACK (2/fully explored)
+3. Report all discovered cycles
+
+**Output:** Deadlocked nodes are highlighted with red glow rings on the canvas. Cycle edges are drawn in bold red. An event is logged for each detected cycle.
+
+## 9. Performance Analysis
+
+The bottleneck detection algorithm evaluates three quantitative indices:
+
+*   **Latency:** Time delta between message send and receive, computed using FIFO-paired matching. A deque of unmatched send times ensures correct pairing for ordered queues.
+*   **Throughput:** Messages sent per second, computed from the first and last send timestamps.
+*   **Queue Depth:** Current depth vs configurable threshold. Peak depth tracked over the simulation lifetime. Depth history available for time-series charting.
+*   **Throughput Ratio:** Received/sent ratio for detecting slow consumers or message loss. Flagged when below 0.5.
+
+Reports include severity levels (LOW/MEDIUM/HIGH/CRITICAL) and human-readable details.
 
 ## 10. GUI Design
-The implementation utilizes an efficient, modular multi-pane split view format standard in developer toolkits.
-*   **Left Pane - Control/Configuration Panel:** Organizes all static user interactions. Includes Forms (Node entry fields), Dropdowns (Queue/Pipe/Mutex), Buttons (Add Edge/Spin Up/Pause/Abort), and global status tags.
-*   **Center Pane - Visualization Engine Canvas:** An integrated, scalable Python window binding `Matplotlib.backends`. Iteratively repaints the graph network topologies in actual time. Hover-over tooltip hooks expose variable queue depths and block assertions. 
-*   **Bottom Pane - Real-Time Trace Log:** A constantly updating scrolling standard text widget pushing timestamp strings depicting system activity natively without OS kernel filtering ("0.413s: PID 20455 waiting on Lock_B").
+
+The implementation uses a modern dark-themed multi-panel layout:
+
+*   **Header Bar:** Simulation controls (Start/Step/Pause/Stop/Reset), speed slider (0.25x–5x), and status indicator.
+*   **Left Panel — 7 Tabs:** Processes, Connect, Analyze, Scenarios, Timeline, Messages, Settings.
+*   **Right Panel — Animated Canvas:** 60fps topology visualization with node dragging, tooltips, pulse animations, and legend overlay.
+*   **Bottom Panel — Event Log:** Color-coded scrolling log with emoji icons and timestamps. Resizable via PanedWindow.
+
+### Color Palette
+
+| Element | Color | Hex |
+|---------|-------|-----|
+| Running | Green | `#22c55e` |
+| Paused | Amber | `#f59e0b` |
+| Deadlocked | Red | `#ef4444` |
+| Idle | Slate | `#94a3b8` |
+| Pipe Edge | Sky Blue | `#38bdf8` |
+| Queue Edge | Purple | `#a78bfa` |
+| SharedMem Edge | Orange | `#fb923c` |
+| Background | Navy | `#0f172a` |
+| Panel BG | Slate | `#1e293b` |
+| Accent | Sky Blue | `#38bdf8` |
 
 ## 11. Sample Scenarios
-*   **Normal Unobstructed IPC:** A primary Producer dynamically passes messages over a configured queue. Visualization showcases persistent rapid green edge strokes. Log reports rapid paired 'Send'/'Receive' hits. Latency graphs demonstrate minimal lag spikes.
-*   **Classic Deadlock (Dining Philosophers Variant):** User provisions three isolated nodes sharing three locked sequences consecutively but recursively inverted. Node A grabs 1 wait 2. B grabs 2 wait 3. C grabs 3 wait 1. Engine halts dynamically. Highlight elements flip instantly to red tracing the precise circular WFG geometry.
-*   **Performance Bottleneck (Slow Consumer):** Application provisions exceptionally fast sender process versus heavily delayed consumer logic. Visual UI edge widths drastically thicken rendering physical representations of backend system memory backing up drastically against the bottleneck constraint.
+
+1. **Normal IPC (Producer → Consumer):** A producer sends "Ping" messages through a queue channel. The canvas shows green pulse animations on the edge. Logs display paired SEND/RECEIVE events. Metrics confirm ~1 msg/s throughput with sub-millisecond latency.
+
+2. **Deadlock (3-Process Circular):** Three processes (P1, P2, P3) each hold one lock and wait for the next (P1→Lock_A,Lock_B; P2→Lock_B,Lock_C; P3→Lock_C,Lock_A). Within seconds, the WFG forms a cycle P1→P2→P3→P1. The canvas highlights all three nodes with red glow rings and bold red edges.
+
+3. **Bottleneck (Fast → Slow):** FastSender (delay=0.2s, priority=9) overwhelms SlowReceiver (delay=3.0s, priority=2). The queue fills to its 50-message capacity. The bottleneck detector flags CRITICAL queue depth, HIGH latency (>2s), and MEDIUM throughput mismatch.
+
+4. **Race Condition (Multiple Writers):** Three writer processes concurrently access shared memory without locks. The race detector flags read-write conflicts within the 500ms time window, demonstrating the need for mutual exclusion.
+
+5. **Multi-Channel Pipeline:** A 4-stage pipeline (Source → Stage1 → Stage2 → Sink) uses three different IPC types (pipe → queue → shared_memory). Demonstrates how data flows through heterogeneous channels with different characteristics.
 
 ## 12. Technology Justification
-*   **Python (Backbone Ecosystem):** Selected for rapid application scoping, superior standard libraries, and unmatched mathematical calculation structures.
-*   **`multiprocessing` Module:** Crucial replacement vs conventional Python standard `threading` implementation. It fully circumvents the pervasive Global Interpreter Lock (GIL) generating distinct hardware kernel representations—an absolute technical necessity for genuine Operating System emulation behaviors.
-*   **NetworkX + Matplotlib:** Represents core standard analytical rendering logic implementations capable of dynamically resolving difficult math positioning matrix computations in milliseconds to visually model graph architecture mathematically effectively.
-*   **Tkinter / PyQt:** PyQt offers drastically superior interactive widget integration alongside `Matplotlib` embedding, permitting incredibly modular scalable UI application frameworks for cross-platform implementation. Tkinter remains explicitly feasible due to no-dependency standards.
+
+*   **Python:** Selected for rapid prototyping, extensive standard library, and strong educational value. The `threading` module provides sufficient concurrency for simulation purposes.
+*   **`threading` Module:** Chosen over `multiprocessing` for simulated processes. Threads share memory natively, enabling direct channel access without serialization overhead. The GIL is acceptable since the goal is simulation, not raw parallel performance.
+*   **`queue.Queue` + `threading.Condition`:** Thread-native IPC primitives that directly match the threading model. No cross-process serialization overhead compared to `multiprocessing.Pipe/Queue`.
+*   **NetworkX:** Industry-standard graph library for WFG construction and cycle detection. Provides `simple_cycles()` for complete deadlock analysis and spring layouts for topology positioning.
+*   **Matplotlib (TkAgg):** Mature plotting library for metrics charts and timeline views, embedded directly into the Tkinter GUI.
+*   **Tkinter Canvas:** Used for the 60fps animated topology (not Matplotlib) — provides direct pixel-level control for smooth animations, node dragging, and hit detection.
 
 ## 13. Testing Strategy
-*   **Framework Unit Testing (e.g. `pytest`):** Evaluates isolated individual abstract algorithm segments (DFS cycle loop arrays) specifically against hardened dataset fixtures statically verifying the codebase effectively catches loop edges in linear time correctly entirely offline.
-*   **Simulation Matrix Testing:** Spooling 1M continuous IPC events between non-blocking producers mathematically verifying `multiprocessing` abstractions avoid hardware dropping flags unexpectedly across heavy usage durations computationally.
-*   **Hard Deadlock Verification Testing:** Executing strict textbook logical OS edge cases sequentially and asserting the tracking hooks mathematically guarantee the software logs halts accurately. 
-*   **Thread Stress Testing:** Arbitrarily instantiating 100 concurrent nodes attempting to assert payload data into isolated buffers asserting the visual canvas refresh polling does not bottleneck the entire processing framework pipeline.
+
+### 13.1 Integration Testing (`run_all_scenarios.py`)
+
+11 comprehensive end-to-end tests exercising the full stack:
+
+| Test | Validates |
+|------|-----------|
+| Event Emitter | Pub/sub dispatch, error resilience, unsubscribe |
+| All Channel Types | Pipe, Queue (FIFO order), SharedMemory (500+ chars) |
+| Sync Manager | Release guard, wait-for edges, access logs |
+| Producer-Consumer Fix | Both send AND receive operations |
+| Race Detection | Write-write, read-write, locked safety, time window |
+| Report Generator | HTML generation, CSV format, text summary |
+| Normal IPC Scenario | End-to-end message passing with metrics |
+| Deadlock Scenario | WFG cycle detection with direct graph verification |
+| Bottleneck Scenario | Queue overflow detection and severity classification |
+| Race Condition Scenario | Multi-writer shared memory access flagging |
+| Pipeline Scenario | Mixed IPC type data flow verification |
+
+### 13.2 Unit Testing (`tests/`)
+
+10 focused test modules covering individual components: channels, detectors, engine, logger, models, scenarios, and GUI smoke tests.
+
+### 13.3 Results
+
+**All 11 integration tests pass.** The test suite completes in approximately 30 seconds, exercising all IPC mechanisms, detection engines, and scenario loaders.
 
 ## 14. Advantages and Limitations
-### Essential Advantages
-*   Vastly bridges intuitive operational system theory and physical code manifestations practically dynamically. 
-*   Implements OS user-space level diagnostic hooks deliberately avoiding extremely unstable kernel-layer probing modifications.
-*   Facilitates excellent scientific exploratory learning capabilities via interactive manipulation parameters.
 
-### Systemic Limitations
-*   **Simulation Overhead Execution:** Native abstractions force wrappers which mathematically incur minute performance delays in executing IPC protocols against purely bare-metal unchecked OS behaviors directly manually dynamically.
-*   **The Probe/Observer Effect Paradigm:** Tracing execution buffers might theoretically inherently correct minute sequence race conditions naturally occurring via sheer operational lag injected artificially, hiding absolute microscopic timing bugs theoretically explicitly inherently continuously.
+### Advantages
+
+*   **Educational Excellence:** 5 carefully designed scenarios cover all major IPC concepts (deadlocks, races, bottlenecks, pipelines) with rich visualization.
+*   **Interactive Visualization:** 60fps animated canvas with dragging, tooltips, pulse animations, and state-based coloring provides immediate visual feedback.
+*   **Comprehensive Analysis:** Three detection engines (deadlock, bottleneck, race) with configurable thresholds and actionable recommendations.
+*   **Professional Reporting:** HTML reports with styled dark theme, CSV exports, and text summaries for documentation.
+*   **Modular Architecture:** Clean 7-package design allows easy extension with new channel types, scenarios, or analysis modules.
+*   **Thorough Testing:** 11 integration tests + 10 unit test modules provide confidence in correctness.
+
+### Limitations
+
+*   **Simulation vs Reality:** Thread-based processes share the same address space, unlike true OS processes. The GIL prevents true parallel execution.
+*   **Observer Effect:** Logging and visualization add overhead that may mask or alter timing-sensitive bugs in real systems.
+*   **Platform UI Differences:** Tkinter widgets may render differently across Windows, macOS, and Linux due to native toolkit differences.
 
 ## 15. Future Enhancements
-*   **Socket/Network IPC Topology Support:** Expanding process node matrices to visualize cross-machine socket topologies modeling distributed OS infrastructure natively securely. 
-*   **Post-Mortem Time Travel Reverse Debugging:** Permitting users to reverse computational frames backward continuously tracing exactly which chronological request instantiated the eventual fatal process block condition sequence perfectly logically dynamically.
-*   **Configurable Process Scheduling Engines:** Explicit manual override logic setting kernel CPU thread affinity priorities testing exactly how priority inversion deadlocks execute visually transparently accurately explicitly. 
+
+*   **Socket/Network IPC:** Add TCP/UDP socket-based channels for distributed simulation across machines.
+*   **Time Travel Debugging:** Enable stepping backward through event history to trace the exact sequence leading to a deadlock or race condition.
+*   **Advanced Scenarios:** Implement Dining Philosophers, Reader-Writer locks, and Producer-Consumer with bounded buffer variations.
+*   **Configuration Persistence:** Save/load topologies as JSON for reproducible experiments.
+*   **Web-Based Frontend:** Migrate to a React/TypeScript web interface for broader accessibility and richer visualization capabilities.

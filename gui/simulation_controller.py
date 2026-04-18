@@ -68,6 +68,9 @@ class SimulationController:
         self.simulation_running = False
         self._refresh_timer: Optional[str] = None
 
+        # Speed control (1.0 = normal)
+        self.speed_var: Optional[tk.DoubleVar] = None
+
         # Callbacks for UI refresh — set by app.py
         self._refresh_canvas_fn = None
         self._refresh_process_cards_fn = None
@@ -84,7 +87,8 @@ class SimulationController:
             messagebox.showwarning("Simulation", "Add at least one process first.")
             return
         self.simulation_running = True
-        self.status_label.config(text="\u25cf  Running", fg=C["accent_ok"])
+        self._apply_speed()
+        self.status_label.config(text="  Running  ", fg=C["accent_ok"], bg="#16a34a")
         self.logger.log_event(source_pid="SYSTEM", dest_pid="", action="INFO",
                               details="Simulation started")
         self.engine.start_all()
@@ -93,24 +97,24 @@ class SimulationController:
     def pause_simulation(self) -> None:
         """Pause the simulation and toggle button to Resume."""
         self.engine.pause_all()
-        self.status_label.config(text="\u25a0  Paused", fg=C["accent_warn"])
+        self.status_label.config(text="  Paused  ", fg="#fff", bg=C["accent_warn"])
         self.logger.log_event(source_pid="SYSTEM", dest_pid="", action="INFO",
                               details="Simulation paused")
         # Toggle button to Resume
         if self.pause_btn:
-            self.pause_btn.config(text="\u25b6 Resume",
+            self.pause_btn.config(text="Resume",
                                   command=self.resume_simulation)
         self._do_ui_refresh()
 
     def resume_simulation(self) -> None:
         """Resume the simulation and toggle button back to Pause."""
         self.engine.resume_all()
-        self.status_label.config(text="\u25cf  Running", fg=C["accent_ok"])
+        self.status_label.config(text="  Running  ", fg="#fff", bg="#16a34a")
         self.logger.log_event(source_pid="SYSTEM", dest_pid="", action="INFO",
                               details="Simulation resumed")
         # Toggle button back to Pause
         if self.pause_btn:
-            self.pause_btn.config(text="\u23f8 Pause",
+            self.pause_btn.config(text="Pause",
                                   command=self.pause_simulation)
         self._do_ui_refresh()
 
@@ -119,19 +123,31 @@ class SimulationController:
         self.simulation_running = False
         self.engine.stop_all()
         self._stop_refresh_timer()
-        self.status_label.config(text="\u25cb  Stopped", fg=C["text_muted"])
+        self.status_label.config(text="  Stopped  ", fg="#94a3b8", bg="#1e293b")
+        # Reset pause button back to Pause state
+        if self.pause_btn:
+            self.pause_btn.config(text="Pause",
+                                  command=self.pause_simulation)
         self.logger.log_event(source_pid="SYSTEM", dest_pid="", action="INFO",
                               details="Simulation stopped")
         self._do_ui_refresh()
 
-    def reset_all(self) -> None:
-        """Stop everything, clear all data, and reset the UI."""
-        if self.process_configs or self.channels:
+    def reset_all(self, force: bool = False) -> None:
+        """Stop everything, clear all data, and reset the UI.
+
+        Args:
+            force: If True, skip the confirmation dialog (used by scenario loaders).
+        """
+        if not force and (self.process_configs or self.channels):
             if not messagebox.askyesno(
                 "Confirm Reset",
                 "This will remove all processes and connections. Continue?"
             ):
                 return
+        self._reset_impl()
+
+    def _reset_impl(self) -> None:
+        """Internal reset — no confirmation dialog."""
         self.stop_simulation()
         for ch in self.channels:
             ch.close()
@@ -277,3 +293,34 @@ class SimulationController:
             self._refresh_canvas_fn()
         if self._refresh_process_cards_fn:
             self._refresh_process_cards_fn()
+
+    # ════════════════════════════════════════════
+    # SPEED CONTROL
+    # ════════════════════════════════════════════
+
+    def _apply_speed(self) -> None:
+        """Apply speed multiplier to all process delays."""
+        if not self.speed_var:
+            return
+        speed = self.speed_var.get()
+        if speed <= 0:
+            speed = 1.0
+        # Speed > 1 means faster (shorter delays)
+        for pid, cfg in self.process_configs.items():
+            # Store original delay if not already stored
+            if not hasattr(cfg, '_original_delay'):
+                cfg._original_delay = cfg.delay
+            cfg.delay = cfg._original_delay / speed
+
+    def step_simulation(self) -> None:
+        """Run one cycle of the simulation, then pause."""
+        if not self.process_configs:
+            messagebox.showwarning("Simulation", "Add at least one process first.")
+            return
+        if not self.simulation_running:
+            # Start and immediately schedule a pause
+            self.start_simulation()
+        # Schedule pause after a short delay (one cycle)
+        self.root.after(200, self.pause_simulation)
+        self.logger.log_event(source_pid="SYSTEM", dest_pid="", action="INFO",
+                              details="Step: one cycle executed")

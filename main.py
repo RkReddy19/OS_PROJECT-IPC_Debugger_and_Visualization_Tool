@@ -37,7 +37,7 @@ def main():
     # Handle graceful shutdown
     def on_close():
         try:
-            app._on_stop_simulation()
+            app.sim_ctrl.stop_simulation()
             app.animated_canvas.stop_animation()
         except Exception:
             pass

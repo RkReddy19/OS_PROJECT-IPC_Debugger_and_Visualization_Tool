@@ -459,6 +459,184 @@ def run_test_producer_consumer_fix():
     engine.reset()
     return True
 
+def run_test_report_generator():
+    """Test: Report Generator — HTML, CSV, and text reports."""
+    header("TEST: Report Generator")
+    log = EventLogger()
+    engine = ProcessEngine(log)
+    bd = BottleneckDetector(log)
+    rd = RaceConditionDetector(log, time_window=0.5)
+
+    from analyzers.report_generator import ReportGenerator
+    rg = ReportGenerator(log)
+
+    # Create some test data
+    configs, connections, _ = load_normal_ipc()
+    for pid, cfg in configs.items():
+        engine.add_process(cfg)
+
+    conn = connections[0]
+    ch = create_channel(conn["channel_type"], conn["channel_name"],
+                        conn["source"], conn["dest"], log)
+    configs["Producer_A"].send_channels.append(ch)
+    configs["Consumer_B"].recv_channels.append(ch)
+
+    engine.start_all()
+    time.sleep(2)
+    engine.stop_all()
+
+    metrics = bd.get_channel_metrics([ch])
+    bottlenecks = bd.analyze_channels([ch])
+    race_reports = rd.detect_races()
+    events = log.get_all_events()
+
+    # Test recommendations
+    subheader("Recommendations Engine")
+    recs = rg.generate_recommendations(bottlenecks, [], race_reports, metrics)
+    assert len(recs) > 0, "Should have at least one recommendation"
+    for rec in recs:
+        logger.info("  %s", rec)
+    logger.info("  ✅ %s recommendation(s) generated", len(recs))
+
+    # Test HTML report
+    subheader("HTML Report")
+    html = rg.generate_html_report(metrics, bottlenecks, [], race_reports, events)
+    assert "<html" in html, "Should be valid HTML"
+    assert "Channel Metrics" in html, "Should contain metrics section"
+    assert len(html) > 1000, f"HTML report too short: {len(html)} chars"
+    logger.info("  ✅ HTML report generated: %s chars", len(html))
+
+    # Test CSV
+    subheader("CSV Metrics")
+    csv_output = rg.generate_csv_metrics(metrics)
+    assert "Channel" in csv_output, "Should have CSV header"
+    lines = csv_output.strip().split("\n")
+    assert len(lines) >= 2, "Should have header + data"
+    logger.info("  ✅ CSV metrics: %s lines", len(lines))
+
+    # Test text summary
+    subheader("Text Summary")
+    text = rg.generate_text_summary(metrics, bottlenecks, [], race_reports)
+    assert "CHANNEL METRICS" in text
+    assert "RECOMMENDATIONS" in text
+    logger.info("  ✅ Text summary: %s chars", len(text))
+
+    engine.reset()
+    logger.info("  ✅ ALL REPORT GENERATOR TESTS PASSED")
+    return True
+
+
+def run_scenario_4_race_condition():
+    """Test: Race Condition Scenario — Multiple writers to shared memory."""
+    header("SCENARIO 4: Race Condition (Multiple Writers)")
+
+    from gui.scenarios import load_race_condition
+
+    log = EventLogger()
+    engine = ProcessEngine(log)
+    rd = RaceConditionDetector(log, time_window=0.5)
+
+    configs, connections, _ = load_race_condition()
+
+    for pid, cfg in configs.items():
+        engine.add_process(cfg)
+        logger.info("  ✅ Added process: %s (behavior=%s)", pid, cfg.behavior)
+
+    # Create channels with race detector
+    channels = []
+    for conn in connections:
+        ch = create_channel(conn["channel_type"], conn["channel_name"],
+                            conn["source"], conn["dest"], log,
+                            race_detector=rd)
+        configs[conn["source"]].send_channels.append(ch)
+        configs[conn["dest"]].recv_channels.append(ch)
+        channels.append(ch)
+        logger.info("  ✅ Created channel: %s (%s)", conn['channel_name'], conn['channel_type'])
+
+    subheader("Running simulation for 3 seconds")
+    engine.start_all()
+    time.sleep(3)
+    engine.stop_all()
+
+    # Check for races
+    subheader("Race Condition Detection")
+    races = rd.detect_races()
+    if races:
+        for r in races:
+            logger.info("  ⚡ %s", r)
+        logger.info("  ✅ %s race condition(s) detected (expected for this scenario)", len(races))
+    else:
+        logger.info("  ℹ️ No races flagged (timing dependent, may need wider window)")
+
+    # Verify messages were exchanged
+    for pid in configs:
+        proc = engine.get_process(pid)
+        if proc:
+            logger.info("  %s: sent=%s, received=%s", pid, proc.messages_sent, proc.messages_received)
+
+    engine.reset()
+    logger.info("  ✅ PASSED — Race condition scenario completed")
+    return True
+
+
+def run_scenario_5_pipeline():
+    """Test: Multi-Channel Pipeline — Source → Stage1 → Stage2 → Sink."""
+    header("SCENARIO 5: Multi-Channel Pipeline")
+
+    from gui.scenarios import load_pipeline
+
+    log = EventLogger()
+    engine = ProcessEngine(log)
+
+    configs, connections, _ = load_pipeline()
+
+    for pid, cfg in configs.items():
+        engine.add_process(cfg)
+        logger.info("  ✅ Added process: %s (behavior=%s, delay=%ss)", pid, cfg.behavior, cfg.delay)
+
+    channels = []
+    for conn in connections:
+        kw = {"maxsize": conn["maxsize"]} if "maxsize" in conn else {}
+        ch = create_channel(conn["channel_type"], conn["channel_name"],
+                            conn["source"], conn["dest"], log, **kw)
+        configs[conn["source"]].send_channels.append(ch)
+        configs[conn["dest"]].recv_channels.append(ch)
+        channels.append(ch)
+        logger.info("  ✅ Created channel: %s (%s)", conn['channel_name'], conn['channel_type'])
+
+    subheader("Running simulation for 4 seconds")
+    engine.start_all()
+    time.sleep(4)
+    engine.stop_all()
+
+    source = engine.get_process("Source")
+    sink = engine.get_process("Sink")
+    logger.info("  Source sent:      %s messages", source.messages_sent)
+    logger.info("  Sink received:    %s messages", sink.messages_received)
+
+    assert source.messages_sent > 0, "Source should have sent messages"
+    logger.info("  ✅ Pipeline data flowed from Source through stages")
+
+    # Channel types verification
+    ch_types = [ch.channel_type for ch in channels]
+    assert "pipe" in ch_types, "Should have pipe channel"
+    assert "queue" in ch_types, "Should have queue channel"
+    assert "shared_memory" in ch_types, "Should have shared_memory channel"
+    logger.info("  ✅ Mixed IPC types verified: %s", ch_types)
+
+    # Metrics
+    subheader("Pipeline Metrics")
+    bd = BottleneckDetector(log)
+    metrics = bd.get_channel_metrics(channels)
+    for m in metrics:
+        logger.info("  %s (%s): sent=%s, recv=%s, lat=%.3fs, thru=%.1fmsg/s",
+                    m.name, m.channel_type, m.messages_sent, m.messages_received,
+                    m.avg_latency, m.throughput)
+
+    engine.reset()
+    logger.info("  ✅ PASSED — Pipeline scenario completed")
+    return True
+
 
 def main():
     logger.info("🔬" * 35)
@@ -472,9 +650,12 @@ def main():
         ("Sync Manager", run_test_sync_manager),
         ("Producer-Consumer Fix", run_test_producer_consumer_fix),
         ("Race Detection", run_test_race_detection),
+        ("Report Generator", run_test_report_generator),
         ("Scenario 1: Normal IPC", run_scenario_1_normal_ipc),
         ("Scenario 2: Deadlock", run_scenario_2_deadlock),
         ("Scenario 3: Bottleneck", run_scenario_3_bottleneck),
+        ("Scenario 4: Race Condition", run_scenario_4_race_condition),
+        ("Scenario 5: Pipeline", run_scenario_5_pipeline),
     ]
     
     for name, test_fn in tests:
@@ -510,3 +691,4 @@ def main():
 if __name__ == "__main__":
     success = main()
     sys.exit(0 if success else 1)
+

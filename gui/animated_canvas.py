@@ -1,6 +1,12 @@
 """
 Animated Canvas — 60fps Tkinter Canvas for IPC topology visualization.
 Smooth position interpolation, pulse animations, deadlock glow effects.
+
+Improvements:
+- Interactive node dragging
+- Hover tooltips showing process stats
+- Auto-triggered message pulse animations
+- Enhanced legend with channel type line styles
 """
 
 import math
@@ -17,7 +23,8 @@ from utils.constants import (
 
 class _NodeState:
     """Internal state for an animated node."""
-    __slots__ = ['cx', 'cy', 'tx', 'ty', 'state']
+    __slots__ = ['cx', 'cy', 'tx', 'ty', 'state', 'messages_sent',
+                 'messages_received', 'behavior']
 
     def __init__(self, x: float, y: float):
         self.cx = x    # current x
@@ -25,6 +32,9 @@ class _NodeState:
         self.tx = x    # target x
         self.ty = y    # target y
         self.state = "idle"
+        self.messages_sent = 0
+        self.messages_received = 0
+        self.behavior = ""
 
 
 class AnimatedCanvas:
@@ -36,6 +46,8 @@ class AnimatedCanvas:
         - Smooth position interpolation when topology changes
         - Pulse animation on active message transfers
         - Glow rings on deadlocked nodes
+        - Interactive node dragging
+        - Hover tooltips
         - Legend overlay
     """
 
@@ -45,6 +57,14 @@ class AnimatedCanvas:
         )
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self.canvas.bind("<Configure>", self._on_resize)
+
+        # Node dragging
+        self.canvas.bind("<ButtonPress-1>", self._on_press)
+        self.canvas.bind("<B1-Motion>", self._on_drag)
+        self.canvas.bind("<ButtonRelease-1>", self._on_release)
+
+        # Hover tooltip
+        self.canvas.bind("<Motion>", self._on_motion)
 
         self._nodes: Dict[str, _NodeState] = {}
         self._edges: List[dict] = []
@@ -59,13 +79,23 @@ class AnimatedCanvas:
         self._layout_cache = None
         self._topology_hash = None
 
+        # Drag state
+        self._drag_pid: Optional[str] = None
+        self._drag_offset = (0, 0)
+
+        # Tooltip state
+        self._tooltip_win: Optional[tk.Toplevel] = None
+        self._hover_pid: Optional[str] = None
+
+        # Process stats reference (set by controller)
+        self._process_engine = None
+
     # ─── Public API ───
 
     def update_topology(self, process_ids: List[str],
                         connections: List[dict],
                         process_states: Dict[str, str]):
         """Rebuild the graph from the current topology."""
-        # Build a NetworkX graph for layout computation
         G = nx.DiGraph()
         for pid in process_ids:
             G.add_node(pid)
@@ -94,13 +124,22 @@ class AnimatedCanvas:
                 if pid not in self._nodes:
                     self._nodes[pid] = _NodeState(tx, ty)
                 else:
-                    self._nodes[pid].tx = tx
-                    self._nodes[pid].ty = ty
+                    # Only update target if not being dragged
+                    if self._drag_pid != pid:
+                        self._nodes[pid].tx = tx
+                        self._nodes[pid].ty = ty
 
-        # Update states
+        # Update states and process stats
         for pid in process_ids:
             if pid in self._nodes:
                 self._nodes[pid].state = process_states.get(pid, "idle")
+                # Update stats if engine available
+                if self._process_engine:
+                    proc = self._process_engine.get_process(pid)
+                    if proc:
+                        self._nodes[pid].messages_sent = proc.messages_sent
+                        self._nodes[pid].messages_received = proc.messages_received
+                        self._nodes[pid].behavior = proc.config.behavior
 
         # Remove stale nodes
         current = set(process_ids)
@@ -129,6 +168,83 @@ class AnimatedCanvas:
     def stop_animation(self):
         self._animating = False
 
+    # ─── Drag Interaction ───
+
+    def _on_press(self, event):
+        """Check if click is on a node and start dragging."""
+        for pid, node in self._nodes.items():
+            dx = event.x - node.cx
+            dy = event.y - node.cy
+            if math.hypot(dx, dy) <= NODE_RADIUS + 4:
+                self._drag_pid = pid
+                self._drag_offset = (dx, dy)
+                return
+
+    def _on_drag(self, event):
+        """Move dragged node."""
+        if self._drag_pid and self._drag_pid in self._nodes:
+            node = self._nodes[self._drag_pid]
+            node.cx = event.x - self._drag_offset[0]
+            node.cy = event.y - self._drag_offset[1]
+            node.tx = node.cx
+            node.ty = node.cy
+
+    def _on_release(self, event):
+        """Stop dragging."""
+        self._drag_pid = None
+
+    # ─── Hover Tooltip ───
+
+    def _on_motion(self, event):
+        """Show tooltip when hovering over a node."""
+        hover_pid = None
+        for pid, node in self._nodes.items():
+            dx = event.x - node.cx
+            dy = event.y - node.cy
+            if math.hypot(dx, dy) <= NODE_RADIUS + 4:
+                hover_pid = pid
+                break
+
+        if hover_pid != self._hover_pid:
+            self._hide_tooltip()
+            self._hover_pid = hover_pid
+            if hover_pid:
+                self._show_tooltip(event, hover_pid)
+
+    def _show_tooltip(self, event, pid: str):
+        """Display a tooltip with process information."""
+        node = self._nodes.get(pid)
+        if not node:
+            return
+
+        self._tooltip_win = tk.Toplevel(self.canvas)
+        self._tooltip_win.wm_overrideredirect(True)
+        x = self.canvas.winfo_rootx() + event.x + 15
+        y = self.canvas.winfo_rooty() + event.y + 15
+        self._tooltip_win.wm_geometry(f"+{x}+{y}")
+
+        behavior = node.behavior or "unknown"
+        info = (
+            f"Process: {pid}\n"
+            f"State: {node.state.upper()}\n"
+            f"Behavior: {behavior}\n"
+            f"Sent: {node.messages_sent}\n"
+            f"Received: {node.messages_received}"
+        )
+
+        label = tk.Label(
+            self._tooltip_win, text=info, justify="left",
+            bg="#334155", fg="#e2e8f0", relief="solid", borderwidth=1,
+            font=("Consolas", 9), padx=10, pady=6,
+        )
+        label.pack()
+
+    def _hide_tooltip(self):
+        """Hide the tooltip if visible."""
+        if self._tooltip_win:
+            self._tooltip_win.destroy()
+            self._tooltip_win = None
+
     # ─── Animation Loop ───
 
     def _start_animation(self):
@@ -144,7 +260,9 @@ class AnimatedCanvas:
         self.canvas.after(ANIMATION_FRAME_MS, self._animate)
 
     def _update_positions(self):
-        for node in self._nodes.values():
+        for pid, node in self._nodes.items():
+            if self._drag_pid == pid:
+                continue  # Don't interpolate while dragging
             node.cx += (node.tx - node.cx) * LERP_SPEED
             node.cy += (node.ty - node.cy) * LERP_SPEED
 
@@ -167,12 +285,26 @@ class AnimatedCanvas:
         self.canvas.delete("all")
 
         if not self._nodes:
+            cx, cy = self._width // 2, self._height // 2
+            # Decorative ring
+            r = 50
+            self.canvas.create_oval(
+                cx - r, cy - r - 30, cx + r, cy + r - 30,
+                outline="#334155", width=2, dash=(6, 4))
             self.canvas.create_text(
-                self._width // 2, self._height // 2,
-                text="No processes added yet.\nUse the Control Panel to add processes.",
-                fill=COLORS["text"], font=("Segoe UI", 14, "italic"),
-                justify="center",
-            )
+                cx, cy - 30,
+                text="IPC", fill="#475569",
+                font=("Segoe UI", 22, "bold"), justify="center")
+            self.canvas.create_text(
+                cx, cy + 40,
+                text="No processes configured",
+                fill="#94a3b8", font=("Segoe UI", 14, "bold"),
+                justify="center")
+            self.canvas.create_text(
+                cx, cy + 65,
+                text="Add processes in the Processes tab, then click Start",
+                fill="#64748b", font=("Segoe UI", 10),
+                justify="center")
             return
 
         self._draw_edges()
@@ -217,13 +349,20 @@ class AnimatedCanvas:
                 smooth=True,
             )
 
-            # Edge label at midpoint
+            # Edge label at midpoint with background
             mx = (src.cx + dst.cx) / 2
             my = (src.cy + dst.cy) / 2 - 14
-            label = f"{conn.get('channel_name', '')}\n({ch_type})"
+            label = conn.get('channel_name', '')
+            ch_label = f"({ch_type})"
+
+            # Label background for readability
             self.canvas.create_text(
                 mx, my, text=label, fill=COLORS["text"],
-                font=("Segoe UI", 7), justify="center",
+                font=("Segoe UI", 7, "bold"), justify="center",
+            )
+            self.canvas.create_text(
+                mx, my + 12, text=ch_label, fill=COLORS["text_dim"],
+                font=("Segoe UI", 6), justify="center",
             )
 
     def _draw_pulses(self):
@@ -234,7 +373,13 @@ class AnimatedCanvas:
                 continue
             px = src.cx + (dst.cx - src.cx) * phase
             py = src.cy + (dst.cy - src.cy) * phase
-            r = 5
+            # Animated glow effect
+            r = 6
+            alpha_r = r + 4
+            self.canvas.create_oval(
+                px - alpha_r, py - alpha_r, px + alpha_r, py + alpha_r,
+                fill="", outline="#f1c40f", width=1, dash=(2, 2),
+            )
             self.canvas.create_oval(
                 px - r, py - r, px + r, py + r,
                 fill="#f1c40f", outline="#f39c12", width=1,
@@ -261,7 +406,13 @@ class AnimatedCanvas:
                 color = COLORS.get(state, COLORS["idle"])
                 radius = NODE_RADIUS
 
-            # Node body
+            # Node body with subtle shadow
+            shadow_off = 3
+            self.canvas.create_oval(
+                node.cx - radius + shadow_off, node.cy - radius + shadow_off,
+                node.cx + radius + shadow_off, node.cy + radius + shadow_off,
+                fill="#0a0f1a", outline="",
+            )
             self.canvas.create_oval(
                 node.cx - radius, node.cy - radius,
                 node.cx + radius, node.cy + radius,
@@ -275,23 +426,57 @@ class AnimatedCanvas:
                 font=("Segoe UI", 9, "bold"),
             )
 
+            # State indicator dot below node
+            indicator_y = node.cy + radius + 8
+            indicator_r = 3
+            self.canvas.create_oval(
+                node.cx - indicator_r, indicator_y - indicator_r,
+                node.cx + indicator_r, indicator_y + indicator_r,
+                fill=color, outline="",
+            )
+
     def _draw_legend(self):
         x, y = 15, 15
-        items = [
+        state_items = [
             ("Running", COLORS["running"]),
             ("Paused", COLORS["paused"]),
             ("Deadlocked", COLORS["deadlocked"]),
             ("Idle/Stopped", COLORS["idle"]),
         ]
+        ch_items = [
+            ("Pipe", COLORS["pipe"], ()),
+            ("Queue", COLORS["queue"], (8, 4)),
+            ("SharedMem", COLORS["shared_memory"], (2, 4)),
+        ]
+
+        total_items = len(state_items) + len(ch_items) + 1  # +1 for separator
+        bw, bh = 130, total_items * 22 + 16
+
         # Background box
-        bw, bh = 120, len(items) * 22 + 10
         self.canvas.create_rectangle(
             x - 5, y - 5, x + bw, y + bh,
-            fill=COLORS["panel_bg"], outline=COLORS["text"], width=1,
-            stipple="gray50",
+            fill=COLORS["panel_bg"], outline=COLORS["card_bg"], width=1,
         )
-        for label, color in items:
+
+        # Process states
+        for label, color in state_items:
             self.canvas.create_rectangle(x, y, x + 14, y + 14, fill=color, outline="")
+            self.canvas.create_text(
+                x + 20, y + 7, text=label, fill=COLORS["text"],
+                font=("Segoe UI", 8), anchor="w",
+            )
+            y += 22
+
+        # Separator
+        y += 4
+        self.canvas.create_line(x, y, x + bw - 10, y, fill=COLORS["card_bg"], width=1)
+        y += 8
+
+        # Channel types
+        for label, color, dash in ch_items:
+            self.canvas.create_line(x, y + 7, x + 14, y + 7,
+                                     fill=color, width=2,
+                                     dash=dash if dash else None)
             self.canvas.create_text(
                 x + 20, y + 7, text=label, fill=COLORS["text"],
                 font=("Segoe UI", 8), anchor="w",
