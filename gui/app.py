@@ -75,6 +75,20 @@ class IPCDebuggerGUI:
         self.process_configs: Dict[str, ProcessConfig] = {}
         self.auto_deadlock_var = tk.BooleanVar(value=False)
 
+        # Sidebar sizing state (LeetCode/GFG-style drag + collapse)
+        self._sidebar_default_width = 380
+        self._sidebar_min_width = 220
+        self._sidebar_collapsed_width = 56
+        self._sidebar_last_width = self._sidebar_default_width
+        self._sidebar_collapsed = False
+        self._content_pane: Optional[tk.PanedWindow] = None
+        self._sidebar_toggle_btn: Optional[tk.Button] = None
+        self._sidebar_handle: Optional[tk.Frame] = None
+        self._sidebar_drag_offset = 0
+        self._sidebar_canvas: Optional[tk.Canvas] = None
+        self._sidebar_notebook: Optional[ttk.Notebook] = None
+        self._style: Optional[ttk.Style] = None
+
         # ── Simulation Controller (Fix #20) ──
         self.sim_ctrl = SimulationController(
             root=self.root,
@@ -131,6 +145,7 @@ class IPCDebuggerGUI:
     # ════════════════════════════════════════════
     def _setup_styles(self) -> None:
         style = ttk.Style()
+        self._style = style
         style.theme_use('clam')
 
         # Notebook: clean dark tabs with strong selection contrast
@@ -147,11 +162,43 @@ class IPCDebuggerGUI:
                   expand=[("selected", [1, 1, 1, 0])])
         style.configure("TFrame", background=C["bg"])
 
+        # Dedicated style for sidebar tabs so it can be resized dynamically.
+        style.configure("Sidebar.TNotebook", background=C["bg"], borderwidth=0,
+                tabmargins=[2, 4, 2, 0])
+        style.configure("Sidebar.TNotebook.Tab",
+                background="#1e293b",
+                foreground="#94a3b8",
+                font=("Segoe UI", 8, "bold"),
+                padding=[4, 5])
+        style.map("Sidebar.TNotebook.Tab",
+              background=[("selected", "#2563eb")],
+              foreground=[("selected", "#ffffff")],
+              expand=[("selected", [1, 1, 1, 0])])
+
         # Combobox dark theme styling
         style.map("TCombobox",
                   fieldbackground=[("readonly", "#1e2030")],
                   foreground=[("readonly", "#cdd6f4")],
                   background=[("readonly", "#1e2030")])
+
+        # High-contrast scrollbar theme for dark UI.
+        style.configure(
+            "Dark.Vertical.TScrollbar",
+            troughcolor="#0b1324",
+            background="#334155",
+            bordercolor="#334155",
+            darkcolor="#334155",
+            lightcolor="#334155",
+            arrowcolor="#cbd5e1",
+            gripcount=0,
+            relief="flat",
+            width=14,
+        )
+        style.map(
+            "Dark.Vertical.TScrollbar",
+            background=[("active", "#60a5fa"), ("pressed", "#3b82f6")],
+            arrowcolor=[("active", "#ffffff"), ("pressed", "#ffffff")],
+        )
         self.root.option_add("*TCombobox*Listbox.background", "#1e2030")
         self.root.option_add("*TCombobox*Listbox.foreground", "#cdd6f4")
         self.root.option_add("*TCombobox*Listbox.selectBackground", "#313244")
@@ -257,18 +304,58 @@ class IPCDebuggerGUI:
         main = tk.Frame(upper, bg=C["bg"])
         main.pack(fill="both", expand=True)
 
-        # LEFT: Tab panel — wider for readable labels
-        left = tk.Frame(main, bg=C["bg"], width=380)
-        left.pack(side="left", fill="y", padx=(6, 0), pady=6)
-        left.pack_propagate(False)
-        self._build_tabs(left)
+        # Horizontal splitter for draggable sidebar resize
+        self._content_pane = tk.PanedWindow(
+            main, orient=tk.HORIZONTAL, sashrelief=tk.RAISED,
+            sashwidth=8, bg="#334155", opaqueresize=True)
+        self._content_pane.pack(fill="both", expand=True, padx=6, pady=6)
 
-        # Separator line
-        tk.Frame(main, bg="#475569", width=2).pack(side="left", fill="y", pady=8)
+        # LEFT: Tab sidebar
+        left = tk.Frame(self._content_pane, bg=C["bg"], width=self._sidebar_default_width)
+        left.pack_propagate(False)
+
+        self._sidebar_canvas = tk.Canvas(
+            left, bg=C["bg"], highlightthickness=0, bd=0, relief="flat"
+        )
+        sidebar_scrollbar = ttk.Scrollbar(
+            left, orient="vertical", command=self._sidebar_canvas.yview,
+            style="Dark.Vertical.TScrollbar"
+        )
+        self._sidebar_canvas.configure(yscrollcommand=sidebar_scrollbar.set)
+
+        self._sidebar_canvas.pack(side="left", fill="both", expand=True)
+        sidebar_scrollbar.pack(side="right", fill="y")
+
+        sidebar_inner = tk.Frame(self._sidebar_canvas, bg=C["bg"])
+        sidebar_window = self._sidebar_canvas.create_window(
+            (0, 0), window=sidebar_inner, anchor="nw"
+        )
+
+        def _refresh_sidebar_scrollregion(_event=None):
+            if not self._sidebar_canvas:
+                return
+            self._sidebar_canvas.configure(scrollregion=self._sidebar_canvas.bbox("all"))
+
+        def _fit_sidebar_inner_width(event):
+            if not self._sidebar_canvas:
+                return
+            self._sidebar_canvas.itemconfig(sidebar_window, width=event.width)
+
+        sidebar_inner.bind("<Configure>", _refresh_sidebar_scrollregion)
+        self._sidebar_canvas.bind("<Configure>", _fit_sidebar_inner_width)
+
+        def _on_sidebar_mousewheel(event):
+            if not self._sidebar_canvas:
+                return
+            self._sidebar_canvas.yview_scroll(-1 * (event.delta // 120), "units")
+
+        sidebar_inner.bind("<MouseWheel>", _on_sidebar_mousewheel)
+        self._sidebar_canvas.bind("<MouseWheel>", _on_sidebar_mousewheel)
+
+        self._build_tabs(sidebar_inner)
 
         # RIGHT: Canvas + Metrics
-        right = tk.Frame(main, bg=C["bg"])
-        right.pack(side="left", fill="both", expand=True, padx=(4, 6), pady=6)
+        right = tk.Frame(self._content_pane, bg=C["bg"])
 
         canvas_frame = tk.Frame(right, bg=C["panel_bg"], relief="flat",
                                 highlightthickness=1, highlightbackground="#334155")
@@ -279,12 +366,163 @@ class IPCDebuggerGUI:
         metrics_frame.pack(fill="x")
         self.metrics_panel = MetricsPanel(metrics_frame)
 
+        self._content_pane.add(
+            left,
+            minsize=self._sidebar_collapsed_width,
+            width=self._sidebar_default_width,
+            stretch="never"
+        )
+        self._content_pane.add(right, minsize=520, stretch="always")
+
+        # Sidebar handle + toggle control anchored to splitter.
+        self._sidebar_handle = tk.Frame(
+            self._content_pane,
+            bg="#1e293b",
+            width=18,
+            height=70,
+            cursor="sb_h_double_arrow",
+            highlightthickness=1,
+            highlightbackground="#475569",
+            highlightcolor="#60a5fa",
+        )
+        self._sidebar_handle.bind("<ButtonPress-1>", self._start_sidebar_drag)
+        self._sidebar_handle.bind("<B1-Motion>", self._on_sidebar_drag)
+        self._sidebar_handle.bind("<ButtonRelease-1>", self._on_sidebar_drag_release)
+
+        self._sidebar_toggle_btn = tk.Button(
+            self._sidebar_handle,
+            text="<",
+            font=("Segoe UI", 9, "bold"),
+            bg="#0f172a",
+            fg="#cbd5e1",
+            activebackground="#334155",
+            activeforeground="#f8fafc",
+            relief="flat",
+            bd=0,
+            padx=4,
+            pady=1,
+            cursor="hand2",
+            command=self._toggle_sidebar,
+        )
+        self._sidebar_toggle_btn.place(relx=0.5, rely=0.5, anchor="center")
+
+        self._update_sidebar_toggle_icon()
+        self._content_pane.bind("<Configure>", self._position_sidebar_toggle)
+        self._content_pane.bind("<ButtonRelease-1>", self._on_sidebar_drag_release)
+        self.root.after_idle(self._position_sidebar_toggle)
+        self.root.after_idle(lambda: self._set_sidebar_width(self._sidebar_default_width))
+
+    def _get_sidebar_width(self) -> int:
+        if not self._content_pane:
+            return self._sidebar_default_width
+        try:
+            return int(self._content_pane.sash_coord(0)[0])
+        except tk.TclError:
+            return self._sidebar_default_width
+
+    def _clamp_sidebar_width(self, width: int) -> int:
+        if not self._content_pane:
+            return max(self._sidebar_collapsed_width, int(width))
+        pane_width = max(1, self._content_pane.winfo_width())
+        max_sidebar = max(self._sidebar_min_width, pane_width - 520)
+        return max(self._sidebar_collapsed_width, min(int(width), max_sidebar))
+
+    def _set_sidebar_width(self, width: int) -> None:
+        if not self._content_pane:
+            return
+        target = self._clamp_sidebar_width(width)
+        try:
+            self._content_pane.sash_place(0, target, 0)
+        except tk.TclError:
+            return
+        self._update_sidebar_responsive_ui()
+        self.root.after_idle(self._position_sidebar_toggle)
+
+    def _animate_sidebar_to(self, target_width: int) -> None:
+        current = self._get_sidebar_width()
+        target = self._clamp_sidebar_width(target_width)
+        delta = target - current
+
+        if abs(delta) <= 2:
+            self._set_sidebar_width(target)
+            return
+
+        step = max(8, abs(delta) // 5)
+        current += step if delta > 0 else -step
+        self._set_sidebar_width(current)
+        self.root.after(12, lambda: self._animate_sidebar_to(target))
+
+    def _toggle_sidebar(self) -> None:
+        if not self._content_pane:
+            return
+
+        if self._sidebar_collapsed:
+            target = max(self._sidebar_last_width, self._sidebar_min_width)
+            self._animate_sidebar_to(target)
+            self._sidebar_collapsed = False
+        else:
+            current_width = self._get_sidebar_width()
+            if current_width > self._sidebar_collapsed_width + 8:
+                self._sidebar_last_width = current_width
+            self._animate_sidebar_to(self._sidebar_collapsed_width)
+            self._sidebar_collapsed = True
+
+        self._update_sidebar_toggle_icon()
+
+    def _start_sidebar_drag(self, event) -> None:
+        if not self._content_pane:
+            return
+        pane_root_x = self._content_pane.winfo_rootx()
+        self._sidebar_drag_offset = (
+            event.x_root - pane_root_x - self._get_sidebar_width()
+        )
+
+    def _on_sidebar_drag(self, event) -> None:
+        if not self._content_pane:
+            return
+        pane_root_x = self._content_pane.winfo_rootx()
+        desired_width = event.x_root - pane_root_x - self._sidebar_drag_offset
+        self._set_sidebar_width(desired_width)
+        self._sidebar_collapsed = self._get_sidebar_width() <= self._sidebar_collapsed_width + 8
+        self._update_sidebar_toggle_icon()
+
+    def _on_sidebar_drag_release(self, _event=None) -> None:
+        if not self._content_pane:
+            return
+        current_width = self._get_sidebar_width()
+
+        self._sidebar_collapsed = current_width <= self._sidebar_collapsed_width + 8
+        if not self._sidebar_collapsed:
+            self._sidebar_last_width = max(current_width, self._sidebar_min_width)
+        self._update_sidebar_responsive_ui()
+        self._update_sidebar_toggle_icon()
+        self._position_sidebar_toggle()
+
+    def _update_sidebar_toggle_icon(self) -> None:
+        if not self._sidebar_toggle_btn:
+            return
+        self._sidebar_toggle_btn.config(text=">" if self._sidebar_collapsed else "<")
+
+    def _position_sidebar_toggle(self, _event=None) -> None:
+        if not self._content_pane or not self._sidebar_handle:
+            return
+        try:
+            sash_x, _ = self._content_pane.sash_coord(0)
+        except tk.TclError:
+            return
+        pane_h = max(1, self._content_pane.winfo_height())
+        handle_h = 70
+        handle_y = max(8, (pane_h // 2) - (handle_h // 2))
+        self._sidebar_handle.place(x=max(0, sash_x - 9), y=handle_y, width=18, height=handle_h)
+        self._sidebar_handle.lift()
+
     # ════════════════════════════════════════════
     # TABS
     # ════════════════════════════════════════════
     def _build_tabs(self, parent) -> None:
-        nb = ttk.Notebook(parent)
+        nb = ttk.Notebook(parent, style="Sidebar.TNotebook")
         nb.pack(fill="both", expand=True)
+        self._sidebar_notebook = nb
 
         # Short tab labels to fit all 7 in sidebar
         tabs = [
@@ -326,6 +564,87 @@ class IPCDebuggerGUI:
         self.settings_panel = SettingsPanel(settings_frame)
         self.settings_panel.auto_deadlock_var = self.auto_deadlock_var
         nb.add(settings_frame, text="Cfg")
+
+        # Export tab (moved beside Settings)
+        export_frame = tk.Frame(nb, bg=C["bg"])
+        self._build_export_tab(export_frame)
+        nb.add(export_frame, text="Expo")
+
+        self.root.after_idle(self._update_sidebar_responsive_ui)
+
+    def _build_export_tab(self, parent) -> None:
+        """Export controls tab."""
+        card = tk.Frame(parent, bg=C["panel_bg"], padx=12, pady=12)
+        card.pack(fill="x", padx=8, pady=8)
+
+        tk.Label(card, text="\U0001f4be Export", font=("Segoe UI", 12, "bold"),
+                 bg=C["panel_bg"], fg=C["text"]).pack(anchor="w")
+        tk.Label(card, text="Save reports, logs, and metrics snapshots",
+                 font=("Segoe UI", 9), bg=C["panel_bg"], fg=C["text_muted"]
+                 ).pack(anchor="w", pady=(2, 8))
+
+        grid = tk.Frame(card, bg=C["panel_bg"])
+        grid.pack(fill="x")
+        actions = [
+            ("HTML Report", self._export_html_report),
+            ("CSV Log", self._export_log_csv),
+            ("PNG Graph", self._save_graph_png),
+            ("Metrics", self._export_metrics_report),
+        ]
+        for idx, (text, cmd) in enumerate(actions):
+            row, col = divmod(idx, 2)
+            btn = _make_button(
+                grid, text, C["btn_secondary"], C["btn_secondary_hover"], cmd,
+                font=("Segoe UI", 9), padx=8, pady=4
+            )
+            btn.grid(row=row, column=col, sticky="ew", padx=2, pady=2)
+            grid.columnconfigure(col, weight=1)
+
+    def _update_sidebar_responsive_ui(self) -> None:
+        """Adjust sidebar tab text and sizing as sidebar width changes."""
+        if not self._sidebar_notebook or not self._style:
+            return
+
+        width = self._get_sidebar_width()
+        tab_count = max(1, len(self._sidebar_notebook.tabs()))
+        width_per_tab = width / tab_count
+
+        if width <= self._sidebar_collapsed_width + 8 or width_per_tab < 40:
+            labels = ["P", "C", "A", "S", "T", "M", "G", "E"]
+            font_size = 7
+            padding = [2, 3]
+            tab_width = 2
+        elif width_per_tab < 72:
+            labels = ["Proc", "Conn", "Anlz", "Scen", "Time", "Msgs", "Cfg", "Expo"]
+            font_size = 8
+            padding = [3, 4]
+            tab_width = 4
+        elif width_per_tab < 95:
+            labels = ["Process", "Connect", "Analyze", "Scenario", "Timeline", "Messages", "Settings", "Export"]
+            font_size = 9
+            padding = [4, 5]
+            tab_width = 7
+        else:
+            labels = ["Processes", "Connections", "Analysis", "Scenarios", "Timeline", "Messages", "Settings", "Export"]
+            font_size = 10
+            padding = [6, 6]
+            tab_width = 10
+
+        self._style.configure(
+            "Sidebar.TNotebook.Tab",
+            font=("Segoe UI", font_size, "bold"),
+            padding=padding,
+            width=tab_width,
+        )
+
+        for i, label in enumerate(labels):
+            try:
+                self._sidebar_notebook.tab(i, text=label)
+            except tk.TclError:
+                continue
+
+        # Ensure style/text updates are reflected immediately after drag/expand.
+        self._sidebar_notebook.update_idletasks()
 
     # ── PROCESS TAB ──
     def _build_process_tab(self, parent) -> None:
@@ -394,7 +713,8 @@ class IPCDebuggerGUI:
 
         self._card_scroll = tk.Canvas(scroll_container, bg=C["bg"], highlightthickness=0)
         card_scrollbar = ttk.Scrollbar(scroll_container, orient="vertical",
-                                       command=self._card_scroll.yview)
+                                       command=self._card_scroll.yview,
+                                       style="Dark.Vertical.TScrollbar")
         self._card_scroll.configure(yscrollcommand=card_scrollbar.set)
 
         self._card_scroll.pack(side="left", fill="both", expand=True)
@@ -612,20 +932,6 @@ class IPCDebuggerGUI:
         _make_button(scen_inner, "\U0001f504 Reset Everything",
                      C["btn_secondary"], C["btn_secondary_hover"],
                      self.sim_ctrl.reset_all).pack(fill="x", padx=24)
-
-        # Export section
-        tk.Label(scen_inner, text="\U0001f4be Export", font=("Segoe UI", 11, "bold"),
-                 bg=C["bg"], fg=C["text"]).pack(anchor="w", padx=16, pady=(16, 4))
-        export_frame = tk.Frame(scen_inner, bg=C["bg"])
-        export_frame.pack(fill="x", padx=16)
-        for text, cmd in [("HTML Report", self._export_html_report),
-                          ("CSV Log", self._export_log_csv),
-                          ("PNG Graph", self._save_graph_png),
-                          ("Metrics", self._export_metrics_report)]:
-            _make_button(export_frame, text, C["btn_secondary"],
-                         C["btn_secondary_hover"], cmd,
-                         font=("Segoe UI", 9), padx=8, pady=4
-                         ).pack(side="left", padx=2, fill="x", expand=True)
 
     # ════════════════════════════════════════════
     # LOG AREA (Fix #11: PanedWindow for resizable log area)

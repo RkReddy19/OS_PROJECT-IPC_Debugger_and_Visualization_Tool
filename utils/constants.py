@@ -129,3 +129,73 @@ NODE_OUTLINE_WIDTH = 2
 GLOW_RINGS = 3
 GLOW_BASE_OFFSET = 8
 GLOW_RING_STEP = 5
+
+# ─── GUI Layout Configuration ───
+GUI_CONFIG = {
+    "window": {
+        "min_width": 1400,
+        "min_height": 850,
+    },
+    "header": {
+        "height": 64,
+        "bg": "#0c1425",
+        "padding": 12,
+        "title_font_size": 16,
+        "version_font_size": 9,
+    },
+    "sidebar": {
+        "width": 380,
+    },
+    "divider": {
+        "height": 3,
+        "color": "#334155",
+        "sash_width": 6,
+        "sash_color": "#475569",
+    },
+    "log_area": {
+        "min_height": 100,
+        "initial_height": 170,
+    },
+    "canvas": {
+        "min_width": 400,
+        "min_height": 300,
+        "empty_ring_radius": 50,
+    },
+    "fonts": {
+        "title": ("Segoe UI", 16, "bold"),
+        "version": ("Segoe UI", 9),
+        "heading": ("Segoe UI", 12, "bold"),
+        "subheading": ("Segoe UI", 11, "bold"),
+        "body": ("Segoe UI", 10),
+        "body_bold": ("Segoe UI", 10, "bold"),
+        "small": ("Segoe UI", 9),
+        "small_bold": ("Segoe UI", 9, "bold"),
+        "tiny": ("Segoe UI", 8),
+        "button": ("Segoe UI", 10, "bold"),
+        "button_small": ("Segoe UI", 9, "bold"),
+        "tooltip": ("Consolas", 9),
+        "node_label": ("Segoe UI", 9, "bold"),
+        "legend": ("Segoe UI", 8),
+        "edge_label": ("Segoe UI", 7, "bold"),
+        "edge_sublabel": ("Segoe UI", 6),
+    },
+}
+
+# ─── Bottleneck Thresholds (configurable) ───
+BOTTLENECK_THRESHOLDS = {
+    "queue_depth": 10,
+    "queue_depth_critical_factor": 2,
+    "latency": 2.0,
+    "latency_critical_factor": 2,
+    "throughput_ratio": 0.5,
+}
+
+# ─── Process Engine Defaults ───
+PROCESS_ENGINE_CONFIG = {
+    "lock_acquire_timeout": 5,
+    "lock_hold_delay": 0.2,
+    "receive_timeout": 0.5,
+    "retry_delay_channel": 0.1,
+    "retry_delay_lock": 1.0,
+    "max_lock_retries": 3,
+}

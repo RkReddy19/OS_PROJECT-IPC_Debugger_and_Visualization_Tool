@@ -82,17 +82,26 @@ class SimulationController:
     # ════════════════════════════════════════════
 
     def start_simulation(self) -> None:
-        """Start the simulation."""
+        """Start the simulation with error handling."""
         if not self.process_configs:
             messagebox.showwarning("Simulation", "Add at least one process first.")
             return
-        self.simulation_running = True
-        self._apply_speed()
-        self.status_label.config(text="  Running  ", fg=C["accent_ok"], bg="#16a34a")
-        self.logger.log_event(source_pid="SYSTEM", dest_pid="", action="INFO",
-                              details="Simulation started")
-        self.engine.start_all()
-        self._start_refresh_timer()
+        try:
+            self.simulation_running = True
+            self._apply_speed()
+            self.status_label.config(text="  Running  ", fg=C["accent_ok"], bg="#16a34a")
+            self.logger.log_event(source_pid="SYSTEM", dest_pid="", action="INFO",
+                                  details="Simulation started")
+            self.engine.start_all()
+            self._start_refresh_timer()
+        except Exception as e:
+            self.simulation_running = False
+            self.logger.log_event(
+                source_pid="SYSTEM", dest_pid="",
+                action="ERROR",
+                details=f"Failed to start simulation: {e}",
+            )
+            messagebox.showerror("Error", f"Cannot start simulation:\n{e}")
 
     def pause_simulation(self) -> None:
         """Pause the simulation and toggle button to Resume."""
@@ -175,75 +184,108 @@ class SimulationController:
     # ════════════════════════════════════════════
 
     def detect_deadlock(self) -> None:
-        """Run deadlock detection."""
+        """Run deadlock detection with error handling."""
         pids = list(self.process_configs.keys())
         if not pids:
             messagebox.showinfo("Deadlock", "No processes to analyze.")
             return
-        cycle_edges = self.deadlock_detector.detect_deadlock(pids)
-        if cycle_edges:
-            involved = self.deadlock_detector.get_involved_processes()
-            if self.animated_canvas:
-                self.animated_canvas.set_deadlock_info(involved, cycle_edges)
-            for pid in involved:
-                p = self.engine.get_process(pid)
-                if p:
-                    p.mark_deadlocked()
-            n = len(self.deadlock_detector.last_cycles)
-            messagebox.showerror("\U0001f534 Deadlock!",
-                f"{n} cycle(s) found!\nInvolved: {', '.join(involved)}")
-        else:
-            if self.animated_canvas:
-                self.animated_canvas.clear_deadlock_info()
-            messagebox.showinfo("Deadlock", "\u2705 No deadlock detected.")
-        self._do_ui_refresh()
+        try:
+            cycle_edges = self.deadlock_detector.detect_deadlock(pids)
+            if cycle_edges:
+                involved = self.deadlock_detector.get_involved_processes()
+                if self.animated_canvas:
+                    self.animated_canvas.set_deadlock_info(involved, cycle_edges)
+                for pid in involved:
+                    p = self.engine.get_process(pid)
+                    if p:
+                        p.mark_deadlocked()
+                n = len(self.deadlock_detector.last_cycles)
+                messagebox.showerror("\U0001f534 Deadlock!",
+                    f"{n} cycle(s) found!\nInvolved: {', '.join(involved)}")
+            else:
+                if self.animated_canvas:
+                    self.animated_canvas.clear_deadlock_info()
+                messagebox.showinfo("Deadlock", "\u2705 No deadlock detected.")
+            self._do_ui_refresh()
+        except Exception as e:
+            self.logger.log_event(
+                source_pid="SYSTEM", dest_pid="",
+                action="ERROR",
+                details=f"Deadlock detection error: {e}",
+            )
+            messagebox.showerror("Error", f"Deadlock detection failed:\n{e}")
 
     def analyze_bottlenecks(self) -> None:
-        """Run bottleneck analysis."""
+        """Run bottleneck analysis with error handling."""
         if not self.channels:
             messagebox.showinfo("Bottleneck", "No channels to analyze.")
             return
         try:
-            self.bottleneck_detector.queue_depth_threshold = int(
-                self.entry_thresh_depth.get())
-        except ValueError:
-            pass
-        try:
-            self.bottleneck_detector.latency_threshold = float(
-                self.entry_thresh_latency.get())
-        except ValueError:
-            pass
-        try:
-            self.bottleneck_detector.throughput_ratio_threshold = float(
-                self.entry_thresh_ratio.get())
-        except ValueError:
-            pass
-        reports = self.bottleneck_detector.analyze_channels(self.channels)
-        if reports:
-            msg = "\n".join(
-                f"\u2022 [{r.severity}] {r.channel_name}: {r.details}"
-                for r in reports)
-            messagebox.showwarning("\U0001f4ca Bottlenecks", msg)
-        else:
-            messagebox.showinfo("Bottleneck", "\u2705 No bottlenecks detected.")
+            # Update thresholds from UI entries
+            try:
+                self.bottleneck_detector.queue_depth_threshold = int(
+                    self.entry_thresh_depth.get())
+            except (ValueError, AttributeError):
+                pass
+            try:
+                self.bottleneck_detector.latency_threshold = float(
+                    self.entry_thresh_latency.get())
+            except (ValueError, AttributeError):
+                pass
+            try:
+                self.bottleneck_detector.throughput_ratio_threshold = float(
+                    self.entry_thresh_ratio.get())
+            except (ValueError, AttributeError):
+                pass
+            reports = self.bottleneck_detector.analyze_channels(self.channels)
+            if reports:
+                msg = "\n".join(
+                    f"\u2022 [{r.severity}] {r.channel_name}: {r.details}"
+                    for r in reports)
+                messagebox.showwarning("\U0001f4ca Bottlenecks", msg)
+            else:
+                messagebox.showinfo("Bottleneck", "\u2705 No bottlenecks detected.")
+        except Exception as e:
+            self.logger.log_event(
+                source_pid="SYSTEM", dest_pid="",
+                action="ERROR",
+                details=f"Bottleneck analysis error: {e}",
+            )
+            messagebox.showerror("Error", f"Bottleneck analysis failed:\n{e}")
 
     def detect_races(self) -> None:
-        """Run race condition detection."""
-        reports = self.race_detector.detect_races()
-        if reports:
-            msg = "\n".join(f"\u2022 {r.details}" for r in reports)
-            messagebox.showwarning("\u26a1 Race Conditions", msg)
-        else:
-            messagebox.showinfo("Races", "\u2705 No race conditions detected.")
+        """Run race condition detection with error handling."""
+        try:
+            reports = self.race_detector.detect_races()
+            if reports:
+                msg = "\n".join(f"\u2022 {r.details}" for r in reports)
+                messagebox.showwarning("\u26a1 Race Conditions", msg)
+            else:
+                messagebox.showinfo("Races", "\u2705 No race conditions detected.")
+        except Exception as e:
+            self.logger.log_event(
+                source_pid="SYSTEM", dest_pid="",
+                action="ERROR",
+                details=f"Race detection error: {e}",
+            )
+            messagebox.showerror("Error", f"Race detection failed:\n{e}")
 
     def show_metrics(self) -> None:
-        """Show performance metrics charts."""
+        """Show performance metrics charts with error handling."""
         if not self.channels:
             messagebox.showinfo("Metrics", "No channels yet.")
             return
-        metrics = self.bottleneck_detector.get_channel_metrics(self.channels)
-        self.metrics_panel.update_metrics(metrics, channels=self.channels)
-        self.metrics_panel.show()
+        try:
+            metrics = self.bottleneck_detector.get_channel_metrics(self.channels)
+            self.metrics_panel.update_metrics(metrics, channels=self.channels)
+            self.metrics_panel.show()
+        except Exception as e:
+            self.logger.log_event(
+                source_pid="SYSTEM", dest_pid="",
+                action="ERROR",
+                details=f"Metrics display error: {e}",
+            )
+            messagebox.showerror("Error", f"Failed to show metrics:\n{e}")
 
     # ════════════════════════════════════════════
     # REFRESH TIMER

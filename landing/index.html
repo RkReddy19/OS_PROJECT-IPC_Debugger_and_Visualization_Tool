@@ -1,0 +1,1710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPC Debugger &amp; Visualization Tool</title>
+    <meta name="description" content="A real-time Inter-Process Communication debugger with animated topology visualization, deadlock detection, bottleneck analysis, and race condition monitoring.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        /* ═══════════════════════════════════════════════
+           RESET & VARIABLES
+           ═══════════════════════════════════════════════ */
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #020617;
+            --bg-secondary: #0f172a;
+            --bg-card: #1e293b;
+            --bg-card-hover: #243347;
+            --bg-glass: rgba(15, 23, 42, 0.75);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-dim: #64748b;
+            --accent-blue: #38bdf8;
+            --accent-purple: #a78bfa;
+            --accent-green: #22c55e;
+            --accent-orange: #fb923c;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+            --border-color: #334155;
+            --gradient-primary: linear-gradient(135deg, #38bdf8 0%, #a78bfa 100%);
+            --gradient-hero: linear-gradient(180deg, #020617 0%, #0f172a 50%, #020617 100%);
+            --gradient-glow: radial-gradient(ellipse at center, rgba(56, 189, 248, 0.15) 0%, transparent 70%);
+            --shadow-lg: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            --shadow-glow: 0 0 60px rgba(56, 189, 248, 0.15);
+            --font-main: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: var(--font-main);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* ═══════════════════════════════════════════════
+           ANIMATED BACKGROUND
+           ═══════════════════════════════════════════════ */
+        .bg-grid {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background-image: 
+                linear-gradient(rgba(56, 189, 248, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(56, 189, 248, 0.03) 1px, transparent 1px);
+            background-size: 60px 60px;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .bg-glow-orb {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(100px);
+            opacity: 0.4;
+            z-index: 0;
+            pointer-events: none;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        .bg-glow-orb:nth-child(1) {
+            width: 600px; height: 600px;
+            background: radial-gradient(circle, rgba(56, 189, 248, 0.15), transparent);
+            top: -200px; left: -100px;
+            animation-delay: 0s;
+        }
+
+        .bg-glow-orb:nth-child(2) {
+            width: 500px; height: 500px;
+            background: radial-gradient(circle, rgba(167, 139, 250, 0.12), transparent);
+            top: 40%; right: -150px;
+            animation-delay: -7s;
+        }
+
+        .bg-glow-orb:nth-child(3) {
+            width: 400px; height: 400px;
+            background: radial-gradient(circle, rgba(34, 197, 94, 0.1), transparent);
+            bottom: -100px; left: 30%;
+            animation-delay: -14s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(30px, -40px) scale(1.05); }
+            66% { transform: translate(-20px, 30px) scale(0.95); }
+        }
+
+        /* ═══════════════════════════════════════════════
+           NAVIGATION
+           ═══════════════════════════════════════════════ */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 1000;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            background: rgba(2, 6, 23, 0.8);
+            border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        nav.scrolled {
+            background: rgba(2, 6, 23, 0.95);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .nav-inner {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 72px;
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+        }
+
+        .nav-logo {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            background: var(--gradient-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            font-weight: 800;
+            color: white;
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
+        }
+
+        .nav-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.02em;
+        }
+
+        .nav-title span {
+            color: var(--accent-blue);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 8px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .nav-links a:hover {
+            color: var(--text-primary);
+            background: rgba(56, 189, 248, 0.1);
+        }
+
+        .nav-cta {
+            background: var(--gradient-primary) !important;
+            color: white !important;
+            font-weight: 600 !important;
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
+        }
+
+        .nav-cta:hover {
+            box-shadow: 0 0 30px rgba(56, 189, 248, 0.4) !important;
+            transform: translateY(-1px);
+        }
+
+        /* ═══════════════════════════════════════════════
+           HERO SECTION
+           ═══════════════════════════════════════════════ */
+        .hero {
+            position: relative;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 120px 2rem 80px;
+            text-align: center;
+            z-index: 1;
+        }
+
+        .hero-content {
+            max-width: 900px;
+            position: relative;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 16px 6px 8px;
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 100px;
+            font-size: 0.85rem;
+            color: var(--accent-blue);
+            font-weight: 500;
+            margin-bottom: 32px;
+            animation: fadeInUp 0.8s ease forwards;
+        }
+
+        .hero-badge-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+            50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+        }
+
+        .hero h1 {
+            font-size: clamp(2.5rem, 6vw, 4.5rem);
+            font-weight: 900;
+            line-height: 1.1;
+            letter-spacing: -0.03em;
+            margin-bottom: 24px;
+            animation: fadeInUp 0.8s ease 0.1s forwards;
+            opacity: 0;
+        }
+
+        .hero h1 .gradient-text {
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-desc {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            max-width: 700px;
+            margin: 0 auto 40px;
+            line-height: 1.7;
+            animation: fadeInUp 0.8s ease 0.2s forwards;
+            opacity: 0;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+            animation: fadeInUp 0.8s ease 0.3s forwards;
+            opacity: 0;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 32px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            border: none;
+            transition: all 0.3s ease;
+            font-family: var(--font-main);
+        }
+
+        .btn-primary {
+            background: var(--gradient-primary);
+            color: white;
+            box-shadow: 0 0 30px rgba(56, 189, 248, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 50px rgba(56, 189, 248, 0.5);
+        }
+
+        .btn-secondary {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--accent-blue);
+            transform: translateY(-2px);
+        }
+
+        .hero-visual {
+            margin-top: 60px;
+            position: relative;
+            animation: fadeInUp 0.8s ease 0.4s forwards;
+            opacity: 0;
+        }
+
+        .hero-visual img {
+            width: 100%;
+            max-width: 900px;
+            border-radius: 20px;
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-lg), var(--shadow-glow);
+        }
+
+        .hero-visual::before {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border-radius: 22px;
+            background: var(--gradient-primary);
+            z-index: -1;
+            opacity: 0.3;
+            filter: blur(20px);
+        }
+
+        /* Stats bar */
+        .hero-stats {
+            display: flex;
+            gap: 40px;
+            justify-content: center;
+            margin-top: 48px;
+            animation: fadeInUp 0.8s ease 0.5s forwards;
+            opacity: 0;
+        }
+
+        .hero-stat {
+            text-align: center;
+        }
+
+        .hero-stat-value {
+            font-size: 2rem;
+            font-weight: 800;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-stat-label {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            font-weight: 500;
+            margin-top: 4px;
+        }
+
+        /* ═══════════════════════════════════════════════
+           SECTION COMMON
+           ═══════════════════════════════════════════════ */
+        section {
+            position: relative;
+            z-index: 1;
+            padding: 100px 2rem;
+        }
+
+        .section-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 64px;
+        }
+
+        .section-tag {
+            display: inline-block;
+            padding: 4px 14px;
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid rgba(56, 189, 248, 0.15);
+            border-radius: 100px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--accent-blue);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            font-size: clamp(2rem, 4vw, 3rem);
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            line-height: 1.15;
+            margin-bottom: 16px;
+        }
+
+        .section-desc {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        /* ═══════════════════════════════════════════════
+           FEATURES SECTION
+           ═══════════════════════════════════════════════ */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 32px;
+            transition: all 0.4s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: var(--gradient-primary);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(56, 189, 248, 0.3);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .feature-card:hover::before {
+            opacity: 1;
+        }
+
+        .feature-icon {
+            width: 52px;
+            height: 52px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+
+        .icon-blue { background: rgba(56, 189, 248, 0.15); }
+        .icon-purple { background: rgba(167, 139, 250, 0.15); }
+        .icon-green { background: rgba(34, 197, 94, 0.15); }
+        .icon-orange { background: rgba(251, 146, 60, 0.15); }
+        .icon-red { background: rgba(239, 68, 68, 0.15); }
+        .icon-yellow { background: rgba(245, 158, 11, 0.15); }
+
+        .feature-card h3 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            letter-spacing: -0.01em;
+        }
+
+        .feature-card p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        /* ═══════════════════════════════════════════════
+           HOW IT WORKS
+           ═══════════════════════════════════════════════ */
+        .steps-container {
+            position: relative;
+        }
+
+        .steps-line {
+            position: absolute;
+            left: 39px;
+            top: 40px;
+            bottom: 40px;
+            width: 2px;
+            background: linear-gradient(180deg, var(--accent-blue), var(--accent-purple), var(--accent-green));
+            opacity: 0.3;
+        }
+
+        .step {
+            display: flex;
+            gap: 32px;
+            margin-bottom: 48px;
+            align-items: flex-start;
+            position: relative;
+        }
+
+        .step:last-child { margin-bottom: 0; }
+
+        .step-number {
+            width: 80px;
+            height: 80px;
+            min-width: 80px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            font-weight: 800;
+            position: relative;
+            z-index: 2;
+        }
+
+        .step:nth-child(1) .step-number {
+            background: rgba(56, 189, 248, 0.15);
+            color: var(--accent-blue);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+        }
+        .step:nth-child(2) .step-number {
+            background: rgba(167, 139, 250, 0.15);
+            color: var(--accent-purple);
+            border: 1px solid rgba(167, 139, 250, 0.2);
+        }
+        .step:nth-child(3) .step-number {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--accent-green);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+        }
+        .step:nth-child(4) .step-number {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-yellow);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+        }
+
+        .step-content {
+            flex: 1;
+            padding-top: 12px;
+        }
+
+        .step-content h3 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            letter-spacing: -0.01em;
+        }
+
+        .step-content p {
+            color: var(--text-secondary);
+            font-size: 1rem;
+            line-height: 1.7;
+        }
+
+        /* ═══════════════════════════════════════════════
+           TECH STACK
+           ═══════════════════════════════════════════════ */
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .tech-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 28px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .tech-card:hover {
+            border-color: rgba(56, 189, 248, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .tech-icon-wrap {
+            width: 56px;
+            height: 56px;
+            min-width: 56px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+        }
+
+        .tech-info h4 {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .tech-info p {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        /* ═══════════════════════════════════════════════
+           DEEP DIVE
+           ═══════════════════════════════════════════════ */
+        .deep-dive-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 32px;
+            align-items: start;
+        }
+
+        .deep-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .deep-card:hover {
+            border-color: rgba(56, 189, 248, 0.3);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .deep-card-header {
+            padding: 24px 28px 0;
+        }
+
+        .deep-card-header h3 {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .deep-card-header p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .deep-card-img {
+            padding: 20px;
+        }
+
+        .deep-card-img img {
+            width: 100%;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        .code-block {
+            padding: 0 28px 28px;
+        }
+
+        .code-block pre {
+            background: #0a0f1e;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            overflow-x: auto;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.6;
+            color: var(--text-secondary);
+        }
+
+        .code-block .keyword { color: var(--accent-purple); }
+        .code-block .function { color: var(--accent-blue); }
+        .code-block .string { color: var(--accent-green); }
+        .code-block .comment { color: var(--text-dim); font-style: italic; }
+        .code-block .decorator { color: var(--accent-orange); }
+        .code-block .class-name { color: var(--accent-yellow); }
+
+        /* Architecture diagram */
+        .arch-list {
+            padding: 0 28px 28px;
+        }
+
+        .arch-layer {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            margin-bottom: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .arch-layer:hover {
+            border-color: rgba(56, 189, 248, 0.3);
+            background: rgba(56, 189, 248, 0.05);
+        }
+
+        .arch-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            min-width: 10px;
+        }
+
+        .arch-layer-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+            min-width: 120px;
+        }
+
+        .arch-layer-desc {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+        }
+
+        /* ═══════════════════════════════════════════════
+           CTA SECTION
+           ═══════════════════════════════════════════════ */
+        .cta-section {
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cta-glow {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            background: radial-gradient(ellipse at center, rgba(56, 189, 248, 0.08) 0%, transparent 60%);
+            pointer-events: none;
+        }
+
+        .cta-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 64px 48px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cta-box::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--gradient-primary);
+        }
+
+        .cta-box h2 {
+            font-size: clamp(1.8rem, 3vw, 2.5rem);
+            font-weight: 800;
+            margin-bottom: 16px;
+            letter-spacing: -0.02em;
+        }
+
+        .cta-box p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            max-width: 500px;
+            margin: 0 auto 32px;
+        }
+
+        .cta-commands {
+            background: #0a0f1e;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px 28px;
+            max-width: 500px;
+            margin: 0 auto 32px;
+            text-align: left;
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+        }
+
+        .cta-commands .prompt {
+            color: var(--accent-green);
+        }
+
+        .cta-commands .cmd {
+            color: var(--text-primary);
+        }
+
+        .cta-commands .comment-line {
+            color: var(--text-dim);
+        }
+
+        /* ═══════════════════════════════════════════════
+           FOOTER
+           ═══════════════════════════════════════════════ */
+        footer {
+            position: relative;
+            z-index: 1;
+            border-top: 1px solid var(--border-color);
+            padding: 40px 2rem;
+            text-align: center;
+        }
+
+        footer p {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        footer a {
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* ═══════════════════════════════════════════════
+           ANIMATIONS
+           ═══════════════════════════════════════════════ */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .reveal {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.7s ease;
+        }
+
+        .reveal.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Stagger children */
+        .stagger-container .reveal:nth-child(1) { transition-delay: 0.05s; }
+        .stagger-container .reveal:nth-child(2) { transition-delay: 0.1s; }
+        .stagger-container .reveal:nth-child(3) { transition-delay: 0.15s; }
+        .stagger-container .reveal:nth-child(4) { transition-delay: 0.2s; }
+        .stagger-container .reveal:nth-child(5) { transition-delay: 0.25s; }
+        .stagger-container .reveal:nth-child(6) { transition-delay: 0.3s; }
+
+        /* ═══════════════════════════════════════════════
+           RESPONSIVE
+           ═══════════════════════════════════════════════ */
+        @media (max-width: 768px) {
+            .nav-links { display: none; }
+            .hero-stats { gap: 24px; }
+            .hero-stat-value { font-size: 1.5rem; }
+            .deep-dive-grid { grid-template-columns: 1fr; }
+            .step { gap: 20px; }
+            .step-number { width: 60px; height: 60px; min-width: 60px; font-size: 1.4rem; }
+            .steps-line { left: 29px; }
+            .cta-box { padding: 40px 24px; }
+        }
+
+        /* ═══════════════════════════════════════════════
+           PARTICLE CANVAS
+           ═══════════════════════════════════════════════ */
+        #particles {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* Separator dividers */
+        .section-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--border-color) 20%, var(--border-color) 80%, transparent);
+            margin: 0 auto;
+            max-width: 1200px;
+        }
+
+        /* ═══════════════════════════════════════════════
+           LAUNCH MODAL
+           ═══════════════════════════════════════════════ */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(2, 6, 23, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 48px;
+            max-width: 560px;
+            width: 90%;
+            text-align: center;
+            position: relative;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.6), 0 0 80px rgba(56, 189, 248, 0.08);
+            animation: slideUp 0.4s ease;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(40px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 16px;
+            right: 20px;
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-size: 1.6rem;
+            cursor: pointer;
+            transition: color 0.2s;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-icon {
+            font-size: 3.5rem;
+            margin-bottom: 16px;
+            display: block;
+        }
+
+        .modal-box h2 {
+            font-size: 1.6rem;
+            font-weight: 800;
+            margin-bottom: 12px;
+            letter-spacing: -0.02em;
+        }
+
+        .modal-box > p {
+            color: var(--text-secondary);
+            margin-bottom: 28px;
+            font-size: 1rem;
+        }
+
+        .modal-terminal {
+            background: #0a0f1e;
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            overflow: hidden;
+            text-align: left;
+            margin-bottom: 28px;
+        }
+
+        .modal-terminal-bar {
+            background: #151d2e;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .modal-terminal-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .modal-terminal-bar span {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            font-family: var(--font-mono);
+            margin-left: 8px;
+        }
+
+        .modal-terminal-body {
+            padding: 20px;
+            font-family: var(--font-mono);
+            font-size: 0.95rem;
+            line-height: 2;
+        }
+
+        .terminal-step {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .terminal-step .step-num {
+            color: var(--accent-blue);
+            font-weight: 600;
+            min-width: 24px;
+        }
+
+        .terminal-step .step-cmd {
+            color: var(--accent-green);
+        }
+
+        .terminal-step .step-text {
+            color: var(--text-secondary);
+        }
+
+        .terminal-highlight {
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-top: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .terminal-highlight code {
+            color: var(--accent-yellow);
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .copy-btn {
+            background: rgba(56, 189, 248, 0.15);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            color: var(--accent-blue);
+            padding: 6px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: var(--font-main);
+            font-size: 0.8rem;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            background: rgba(56, 189, 248, 0.25);
+        }
+
+        .modal-footer-note {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Background effects -->
+    <div class="bg-glow-orb"></div>
+    <div class="bg-glow-orb"></div>
+    <div class="bg-glow-orb"></div>
+    <div class="bg-grid"></div>
+    <canvas id="particles"></canvas>
+
+    <!-- Navigation -->
+    <nav id="navbar">
+        <div class="nav-inner">
+            <a href="#" class="nav-brand">
+                <div class="nav-logo">⚡</div>
+                <div class="nav-title">IPC <span>Debugger</span></div>
+            </a>
+            <ul class="nav-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#how-it-works">How It Works</a></li>
+                <li><a href="#tech-stack">Tech Stack</a></li>
+                <li><a href="#deep-dive">Deep Dive</a></li>
+                <li><a href="#get-started" class="nav-cta">Explore →</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero" id="hero">
+        <div class="hero-content">
+            <div class="hero-badge">
+                <div class="hero-badge-dot"></div>
+                OS Course Project — Version 2.0
+            </div>
+
+            <h1>
+                Real-Time <span class="gradient-text">IPC Debugging</span><br>
+                & Visualization
+            </h1>
+
+            <p class="hero-desc">
+                A comprehensive inter-process communication debugger that provides 
+                animated topology visualization, deadlock detection using Wait-For Graphs, 
+                bottleneck analysis, and race condition monitoring — all in real time.
+            </p>
+
+            <div class="hero-actions">
+                <button class="btn btn-primary" onclick="launchApp()">
+                    🚀 Explore Features
+                </button>
+                <a href="#how-it-works" class="btn btn-secondary">
+                    📖 Learn More
+                </a>
+            </div>
+
+            <div class="hero-visual">
+                <img src="assets/hero.png" alt="IPC Debugger Topology Visualization">
+            </div>
+
+            <div class="hero-stats">
+                <div class="hero-stat">
+                    <div class="hero-stat-value">6,500+</div>
+                    <div class="hero-stat-label">Lines of Code</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="hero-stat-value">42</div>
+                    <div class="hero-stat-label">Python Files</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="hero-stat-value">60fps</div>
+                    <div class="hero-stat-label">Canvas Animation</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="hero-stat-value">5</div>
+                    <div class="hero-stat-label">IPC Scenarios</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider"></div>
+
+    <!-- Features Section -->
+    <section id="features">
+        <div class="section-inner">
+            <div class="section-header reveal">
+                <div class="section-tag">Core Features</div>
+                <h2 class="section-title">Everything You Need to<br>Debug IPC Systems</h2>
+                <p class="section-desc">
+                    Six powerful analysis tools working together to give you 
+                    complete visibility into inter-process communication.
+                </p>
+            </div>
+
+            <div class="features-grid stagger-container">
+                <div class="feature-card reveal">
+                    <div class="feature-icon icon-blue">🔍</div>
+                    <h3>Animated Topology Canvas</h3>
+                    <p>60fps real-time visualization of your process topology with smooth position interpolation, interactive node dragging, and pulse animations for active message transfers.</p>
+                </div>
+
+                <div class="feature-card reveal">
+                    <div class="feature-icon icon-red">🔴</div>
+                    <h3>Deadlock Detection</h3>
+                    <p>Builds Wait-For Graphs using NetworkX and detects ALL circular dependencies via cycle detection. Visual glow rings highlight deadlocked processes instantly.</p>
+                </div>
+
+                <div class="feature-card reveal">
+                    <div class="feature-icon icon-orange">📊</div>
+                    <h3>Bottleneck Analysis</h3>
+                    <p>FIFO-based latency calculation, queue depth monitoring, and throughput ratio analysis to identify performance bottlenecks before they crash your system.</p>
+                </div>
+
+                <div class="feature-card reveal">
+                    <div class="feature-icon icon-yellow">⚡</div>
+                    <h3>Race Condition Detection</h3>
+                    <p>Sliding-window algorithm detects concurrent access to shared resources. Flags read-write and write-write conflicts within configurable time windows.</p>
+                </div>
+
+                <div class="feature-card reveal">
+                    <div class="feature-icon icon-green">📈</div>
+                    <h3>Performance Metrics</h3>
+                    <p>Matplotlib-powered charts showing latency distributions, throughput over time, queue depth history, and per-channel performance breakdowns.</p>
+                </div>
+
+                <div class="feature-card reveal">
+                    <div class="feature-icon icon-purple">📋</div>
+                    <h3>Export & Reporting</h3>
+                    <p>Generate HTML reports, CSV logs, PNG graphs, and metrics snapshots. Complete audit trail with timeline visualization and message browser.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider"></div>
+
+    <!-- How It Works -->
+    <section id="how-it-works">
+        <div class="section-inner">
+            <div class="section-header reveal">
+                <div class="section-tag">Workflow</div>
+                <h2 class="section-title">How It Works</h2>
+                <p class="section-desc">
+                    From configuration to analysis in four simple steps — 
+                    or load a pre-built scenario with one click.
+                </p>
+            </div>
+
+            <div class="steps-container">
+                <div class="steps-line"></div>
+
+                <div class="step reveal">
+                    <div class="step-number">01</div>
+                    <div class="step-content">
+                        <h3>Configure Processes</h3>
+                        <p>Define your process topology — add producers, consumers, and bidirectional processes. Set behaviors, priorities, message content, and operation delays. Create synchronization primitives like semaphores and locks.</p>
+                    </div>
+                </div>
+
+                <div class="step reveal">
+                    <div class="step-number">02</div>
+                    <div class="step-content">
+                        <h3>Connect via IPC Channels</h3>
+                        <p>Wire your processes together using three IPC mechanisms: <strong>Pipes</strong> for 1-to-1 communication, <strong>Queues</strong> for buffered FIFO channels, and <strong>Shared Memory</strong> for direct memory access. Each channel is tracked independently.</p>
+                    </div>
+                </div>
+
+                <div class="step reveal">
+                    <div class="step-number">03</div>
+                    <div class="step-content">
+                        <h3>Run the Simulation</h3>
+                        <p>Start the simulation and watch your processes communicate in real time on the animated canvas. Control speed (0.25x — 5x), pause/resume individual steps, and observe message flow via pulse animations along edges.</p>
+                    </div>
+                </div>
+
+                <div class="step reveal">
+                    <div class="step-number">04</div>
+                    <div class="step-content">
+                        <h3>Analyze & Debug</h3>
+                        <p>Run deadlock detection to find circular waits, bottleneck analysis to spot slow consumers, and race condition detection to find unprotected shared access. View results in charts, timelines, and exportable reports.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider"></div>
+
+    <!-- Tech Stack -->
+    <section id="tech-stack">
+        <div class="section-inner">
+            <div class="section-header reveal">
+                <div class="section-tag">Technology</div>
+                <h2 class="section-title">Frameworks & Tech Stack</h2>
+                <p class="section-desc">
+                    Built with production-grade Python libraries and 
+                    modern software engineering patterns.
+                </p>
+            </div>
+
+            <div class="tech-grid stagger-container">
+                <div class="tech-card reveal">
+                    <div class="tech-icon-wrap icon-blue">🐍</div>
+                    <div class="tech-info">
+                        <h4>Python 3.10+</h4>
+                        <p>Core language — threading, dataclasses, type hints</p>
+                    </div>
+                </div>
+
+                <div class="tech-card reveal">
+                    <div class="tech-icon-wrap icon-green">🖼️</div>
+                    <div class="tech-info">
+                        <h4>Tkinter / ttk</h4>
+                        <p>Desktop GUI framework with custom dark theme</p>
+                    </div>
+                </div>
+
+                <div class="tech-card reveal">
+                    <div class="tech-icon-wrap icon-purple">🔗</div>
+                    <div class="tech-info">
+                        <h4>NetworkX</h4>
+                        <p>Graph algorithms — cycle detection, WFG analysis</p>
+                    </div>
+                </div>
+
+                <div class="tech-card reveal">
+                    <div class="tech-icon-wrap icon-orange">📊</div>
+                    <div class="tech-info">
+                        <h4>Matplotlib</h4>
+                        <p>Performance charts — latency, throughput, depth</p>
+                    </div>
+                </div>
+
+                <div class="tech-card reveal">
+                    <div class="tech-icon-wrap icon-yellow">🧵</div>
+                    <div class="tech-info">
+                        <h4>Threading</h4>
+                        <p>Multi-threaded process simulation with events</p>
+                    </div>
+                </div>
+
+                <div class="tech-card reveal">
+                    <div class="tech-icon-wrap icon-red">🏗️</div>
+                    <div class="tech-info">
+                        <h4>Dependency Injection</h4>
+                        <p>AppServices container for modular architecture</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider"></div>
+
+    <!-- Technical Deep Dive -->
+    <section id="deep-dive">
+        <div class="section-inner">
+            <div class="section-header reveal">
+                <div class="section-tag">Under The Hood</div>
+                <h2 class="section-title">Technical Deep Dive</h2>
+                <p class="section-desc">
+                    Explore the architecture, algorithms, and design patterns 
+                    that power the IPC Debugger.
+                </p>
+            </div>
+
+            <div class="deep-dive-grid">
+                <!-- Architecture card -->
+                <div class="deep-card reveal">
+                    <div class="deep-card-header">
+                        <h3>🏛️ Modular Architecture</h3>
+                        <p>7 packages with clear separation of concerns</p>
+                    </div>
+                    <div class="arch-list">
+                        <div class="arch-layer">
+                            <div class="arch-dot" style="background: var(--accent-blue)"></div>
+                            <div class="arch-layer-name">gui/</div>
+                            <div class="arch-layer-desc">Canvas, panels, controller, tooltips</div>
+                        </div>
+                        <div class="arch-layer">
+                            <div class="arch-dot" style="background: var(--accent-green)"></div>
+                            <div class="arch-layer-name">engine/</div>
+                            <div class="arch-layer-desc">Process simulation, sync manager</div>
+                        </div>
+                        <div class="arch-layer">
+                            <div class="arch-dot" style="background: var(--accent-orange)"></div>
+                            <div class="arch-layer-name">analyzers/</div>
+                            <div class="arch-layer-desc">Deadlock, bottleneck, race detectors</div>
+                        </div>
+                        <div class="arch-layer">
+                            <div class="arch-dot" style="background: var(--accent-purple)"></div>
+                            <div class="arch-layer-name">ipc/</div>
+                            <div class="arch-layer-desc">Pipe, queue, shared memory channels</div>
+                        </div>
+                        <div class="arch-layer">
+                            <div class="arch-dot" style="background: var(--accent-yellow)"></div>
+                            <div class="arch-layer-name">utils/</div>
+                            <div class="arch-layer-desc">Models, logger, constants, DI container</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Deadlock Algorithm -->
+                <div class="deep-card reveal">
+                    <div class="deep-card-header">
+                        <h3>🔴 Deadlock Detection Algorithm</h3>
+                        <p>Wait-For Graph with hash-based caching</p>
+                    </div>
+                    <div class="deep-card-img">
+                        <img src="assets/deadlock.png" alt="Deadlock cycle visualization">
+                    </div>
+                    <div class="code-block">
+                        <pre><span class="comment"># Cached cycle detection (O(1) when unchanged)</span>
+<span class="keyword">def</span> <span class="function">detect_deadlock</span>(self, pids):
+    edges = self.sync_manager.<span class="function">get_wait_for_edges</span>()
+    current_hash = self.<span class="function">_compute_hash</span>(pids, edges)
+    
+    <span class="keyword">if</span> current_hash == self._cache_hash:
+        <span class="keyword">return</span> self._cached_edges  <span class="comment"># 99% faster</span>
+    
+    self.<span class="function">build_wait_for_graph</span>(pids)
+    cycles = <span class="function">list</span>(nx.<span class="function">simple_cycles</span>(self.wfg))
+    <span class="keyword">return</span> self.<span class="function">_extract_edges</span>(cycles)</pre>
+                    </div>
+                </div>
+
+                <!-- Process Engine -->
+                <div class="deep-card reveal">
+                    <div class="deep-card-header">
+                        <h3>⚙️ Process Engine</h3>
+                        <p>Thread-per-process simulation with retry logic</p>
+                    </div>
+                    <div class="code-block">
+                        <pre><span class="comment"># Custom exception hierarchy</span>
+<span class="keyword">class</span> <span class="class-name">ProcessException</span>(IPCDebuggerError): ...
+<span class="keyword">class</span> <span class="class-name">LockTimeoutException</span>(ProcessException): ...
+<span class="keyword">class</span> <span class="class-name">ChannelException</span>(ProcessException): ...
+
+<span class="comment"># Behavior loop with granular error handling</span>
+<span class="keyword">try</span>:
+    self.<span class="function">_acquire_locks_with_retry</span>()
+    <span class="keyword">while not</span> self._stop_event.<span class="function">is_set</span>():
+        <span class="keyword">if</span> behavior == <span class="string">"producer"</span>:
+            self.<span class="function">_do_send_safe</span>(iteration)
+        <span class="keyword">elif</span> behavior == <span class="string">"consumer"</span>:
+            self.<span class="function">_do_receive_safe</span>()
+<span class="keyword">except</span> <span class="class-name">ChannelException</span>:
+    <span class="comment"># Retry with backoff</span>
+    time.<span class="function">sleep</span>(<span class="string">0.1</span>)</pre>
+                    </div>
+                </div>
+
+                <!-- Canvas Rendering -->
+                <div class="deep-card reveal">
+                    <div class="deep-card-header">
+                        <h3>🎨 Canvas Rendering Pipeline</h3>
+                        <p>Dirty-flag optimization with thread-safe state</p>
+                    </div>
+                    <div class="code-block">
+                        <pre><span class="comment"># Thread-safe node state with locking</span>
+<span class="keyword">class</span> <span class="class-name">_NodeState</span>:
+    <span class="keyword">def</span> <span class="function">get_snapshot</span>(self) -> dict:
+        <span class="keyword">with</span> self._lock:
+            <span class="keyword">return</span> {<span class="string">"cx"</span>: self.cx, <span class="string">"cy"</span>: self.cy, ...}
+
+<span class="comment"># Animation loop skips unchanged frames</span>
+<span class="keyword">def</span> <span class="function">_animate</span>(self):
+    moved = self.<span class="function">_update_positions</span>()
+    has_pulses = self.<span class="function">_update_pulses</span>()
+
+    needs_redraw = (
+        self._dirty_topology
+        <span class="keyword">or</span> moved
+        <span class="keyword">or</span> has_pulses
+        <span class="keyword">or</span> self._frame_count % 30 == 0
+    )
+    <span class="keyword">if</span> needs_redraw:
+        self.<span class="function">_draw_frame</span>()</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider"></div>
+
+    <!-- CTA Section -->
+    <section id="get-started" class="cta-section">
+        <div class="cta-glow"></div>
+        <div class="section-inner">
+            <div class="cta-box reveal">
+                <h2>Ready to Explore?</h2>
+                <p>Launch the IPC Debugger and start visualizing inter-process communication in real time.</p>
+                
+                <div class="cta-commands">
+                    <div class="comment-line"># Launch the application</div>
+                    <div><span class="prompt">$</span> <span class="cmd">py main.py</span></div>
+                    <br>
+                    <div class="comment-line"># Or run all test scenarios</div>
+                    <div><span class="prompt">$</span> <span class="cmd">py run_all_scenarios.py</span></div>
+                </div>
+
+                <div class="hero-actions" style="opacity:1">
+                    <button class="btn btn-primary" id="launch-btn" onclick="launchApp()">
+                        🚀 Launch IPC Debugger
+                    </button>
+                    <a href="https://github.com/RkReddy19/OS-PROJECT" target="_blank" class="btn btn-secondary">
+                        ⭐ View on GitHub
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Launch Modal -->
+    <div class="modal-overlay" id="launch-modal">
+        <div class="modal-box">
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+            <span class="modal-icon">🚀</span>
+            <h2>Launch IPC Debugger</h2>
+            <p>Open a terminal in the project folder and run the command below:</p>
+
+            <div class="modal-terminal">
+                <div class="modal-terminal-bar">
+                    <div class="modal-terminal-dot" style="background:#ef4444"></div>
+                    <div class="modal-terminal-dot" style="background:#f59e0b"></div>
+                    <div class="modal-terminal-dot" style="background:#22c55e"></div>
+                    <span>Terminal</span>
+                </div>
+                <div class="modal-terminal-body">
+                    <div class="terminal-step">
+                        <span class="step-num">1.</span>
+                        <span class="step-text">Open terminal in project folder</span>
+                    </div>
+                    <div class="terminal-step">
+                        <span class="step-num">2.</span>
+                        <span class="step-text">Run the command:</span>
+                    </div>
+                    <div class="terminal-highlight">
+                        <code>py main.py</code>
+                        <button class="copy-btn" onclick="copyCommand()">📋 Copy</button>
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn btn-primary" style="width:100%" onclick="copyAndClose()">
+                📋 Copy Command & Close
+            </button>
+            <p class="modal-footer-note">Paste <code style="color:var(--accent-yellow)">py main.py</code> in your terminal to launch the app</p>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <p>
+            Built with 💙 for OS Course Project &mdash; 
+            IPC Debugger &amp; Visualization Tool v2.0 &mdash;  
+            <a href="https://github.com/RkReddy19/OS-PROJECT">GitHub</a>
+        </p>
+    </footer>
+
+    <script>
+        // ═══════════════════════════════════════════════
+        // SCROLL REVEAL ANIMATION
+        // ═══════════════════════════════════════════════
+        const reveals = document.querySelectorAll('.reveal');
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, observerOptions);
+
+        reveals.forEach(el => observer.observe(el));
+
+        // ═══════════════════════════════════════════════
+        // NAVBAR SCROLL EFFECT
+        // ═══════════════════════════════════════════════
+        const navbar = document.getElementById('navbar');
+        window.addEventListener('scroll', () => {
+            navbar.classList.toggle('scrolled', window.scrollY > 50);
+        });
+
+        // ═══════════════════════════════════════════════
+        // PARTICLE CANVAS
+        // ═══════════════════════════════════════════════
+        const canvas = document.getElementById('particles');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 2 + 0.5;
+                this.speedX = (Math.random() - 0.5) * 0.3;
+                this.speedY = (Math.random() - 0.5) * 0.3;
+                this.opacity = Math.random() * 0.3 + 0.1;
+                this.hue = Math.random() > 0.5 ? 199 : 259; // blue or purple
+            }
+
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+
+                if (this.x < 0 || this.x > canvas.width ||
+                    this.y < 0 || this.y > canvas.height) {
+                    this.reset();
+                }
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${this.hue}, 80%, 70%, ${this.opacity})`;
+                ctx.fill();
+            }
+        }
+
+        // Create particles
+        const particleCount = Math.min(80, Math.floor(window.innerWidth / 20));
+        for (let i = 0; i < particleCount; i++) {
+            particles.push(new Particle());
+        }
+
+        function drawConnections() {
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const dx = particles[i].x - particles[j].x;
+                    const dy = particles[i].y - particles[j].y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < 150) {
+                        ctx.beginPath();
+                        ctx.moveTo(particles[i].x, particles[i].y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
+                        const alpha = (1 - dist / 150) * 0.08;
+                        ctx.strokeStyle = `rgba(56, 189, 248, ${alpha})`;
+                        ctx.lineWidth = 0.5;
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        function animateParticles() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => { p.update(); p.draw(); });
+            drawConnections();
+            requestAnimationFrame(animateParticles);
+        }
+        animateParticles();
+
+        // ═══════════════════════════════════════════════
+        // LAUNCH MODAL
+        // ═══════════════════════════════════════════════
+        function launchApp() {
+            document.getElementById('launch-modal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('launch-modal').classList.remove('active');
+        }
+
+        // Close modal on backdrop click
+        document.getElementById('launch-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeModal();
+        });
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        function copyCommand() {
+            navigator.clipboard.writeText('py main.py').then(() => {
+                const btn = document.querySelector('.copy-btn');
+                btn.textContent = '✅ Copied!';
+                setTimeout(() => { btn.textContent = '📋 Copy'; }, 2000);
+            });
+        }
+
+        function copyAndClose() {
+            navigator.clipboard.writeText('py main.py').then(() => {
+                const btn = event.target;
+                btn.innerHTML = '✅ Copied! Open your terminal and paste.';
+                btn.style.background = 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)';
+                setTimeout(() => {
+                    closeModal();
+                    btn.innerHTML = '📋 Copy Command & Close';
+                    btn.style.background = '';
+                }, 2000);
+            });
+        }
+
+        // ═══════════════════════════════════════════════
+        // SMOOTH SCROLL FOR NAV LINKS
+        // ═══════════════════════════════════════════════
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function(e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

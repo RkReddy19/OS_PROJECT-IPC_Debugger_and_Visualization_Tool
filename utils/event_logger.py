@@ -1,12 +1,15 @@
 """
 Centralized Event Logger — thread-safe logging with EventEmitter.
 Emits 'new_event' on every log_event() call.
+
+Enhancement: Optional max_age_seconds to prune old events beyond
+the bounded deque limit.
 """
 
 import time
 import threading
 from collections import deque
-from typing import List
+from typing import List, Optional
 
 from utils.models import LogEvent
 from utils.event_emitter import EventEmitter
@@ -17,15 +20,22 @@ class EventLogger(EventEmitter):
 
     Events stored in a bounded deque and dispatched via EventEmitter.
     Emits: 'new_event' with the LogEvent as argument.
+
+    Args:
+        maxlen: Maximum number of events to retain.
+        max_age_seconds: If set, events older than this many seconds
+                         are pruned on each log_event() call.
     """
 
-    def __init__(self, maxlen: int = 10000):
+    def __init__(self, maxlen: int = 10000,
+                 max_age_seconds: Optional[float] = None) -> None:
         super().__init__()
         self._events: deque = deque(maxlen=maxlen)
-        self._lock = threading.Lock()
-        self._start_time = time.time()
+        self._lock: threading.Lock = threading.Lock()
+        self._start_time: float = time.time()
+        self._max_age: Optional[float] = max_age_seconds
 
-    def reset(self):
+    def reset(self) -> None:
         """Clear all logged events and reset start time."""
         with self._lock:
             self._events.clear()
@@ -46,6 +56,12 @@ class EventLogger(EventEmitter):
             channel_type=channel_type,
         )
         with self._lock:
+            # Prune old events by age if configured
+            if self._max_age is not None:
+                now = time.time() - self._start_time
+                while (self._events and
+                       (now - self._events[0].timestamp) > self._max_age):
+                    self._events.popleft()
             self._events.append(event)
         self.emit('new_event', event)
         return event
@@ -60,7 +76,7 @@ class EventLogger(EventEmitter):
         with self._lock:
             return [e for e in self._events if e.timestamp > since_timestamp]
 
-    def clear(self):
+    def clear(self) -> None:
         """Alias for reset."""
         self.reset()
 
